@@ -15,7 +15,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="JAK Company RAG Robust API", version="2.2")
+app = FastAPI(title="JAK Company RAG Robust API", version="2.3")
 
 # Configuration CORS
 app.add_middleware(
@@ -130,7 +130,7 @@ Tu dois OBLIGATOIREMENT:
 7. JAMAIS de salutations répétées - recadrage direct"""
                 )
             
-            # === DÉTECTION PAIEMENT (PRIORITÉ HAUTE) ===
+            # === DÉTECTION PAIEMENT (PRIORITÉ HAUTE) - AVEC BLOC F1 RENFORCÉ ===
             payment_keywords = [
                 "pas été payé", "pas payé", "paiement", "cpf", "opco", 
                 "virement", "argent", "retard", "délai", "attends",
@@ -148,19 +148,27 @@ Tu dois OBLIGATOIREMENT:
                     should_escalate=True,
                     system_instructions="""CONTEXTE DÉTECTÉ: PAIEMENT FORMATION
 RÈGLE ABSOLUE - FILTRAGE PAIEMENT OBLIGATOIRE:
-1. Chercher d'abord dans Supabase les blocs paiement (Bloc F, F1, F2, F3)
-2. OBLIGATOIRE: Poser les questions de filtrage:
-   - Comment la formation a été financée ? (CPF, OPCO, direct)
-   - Environ quand elle s'est terminée ?
-3. Appliquer les délais de référence:
-   - Direct: ≤7j normal, >7j ESCALADE
-   - CPF: ≤45j normal, >45j vérifier CPF BLOQUÉ
-   - OPCO: ≤2 mois normal, >2 mois ESCALADE
-4. Si CPF bloqué détecté → Bloc F1 ou F2
-5. Si délai OPCO dépassé → Bloc F3 + ESCALADE ADMIN
-6. Reproduire les blocs EXACTEMENT avec tous les emojis
-7. NE JAMAIS escalader sans avoir les infos financement + date
-8. JAMAIS de salutations répétées - questions directes"""
+
+ÉTAPE 1 - QUESTIONS DE FILTRAGE OBLIGATOIRES :
+1. "Comment la formation a été financée ?" (CPF, OPCO, direct)
+2. "Environ quand elle s'est terminée ?"
+
+ÉTAPE 2 - LOGIQUE CONDITIONNELLE STRICTE :
+- Si CPF ET > 45 jours → OBLIGATOIRE : Poser d'abord la question du Bloc F1
+- Bloc F1 = "Est-ce que ton CPF est bloqué ?"
+- Si réponse OUI → Appliquer Bloc F2 (déblocage CPF)
+- Si réponse NON → Escalade admin car délai anormal
+
+ÉTAPE 3 - DÉLAIS DE RÉFÉRENCE :
+- Direct: ≤7j normal, >7j ESCALADE
+- CPF: ≤45j normal, >45j → QUESTION F1 OBLIGATOIRE puis F2 si bloqué
+- OPCO: ≤2 mois normal, >2 mois ESCALADE
+
+INTERDICTION ABSOLUE : Passer directement au Bloc F2 sans poser la question F1.
+OBLIGATION : Toujours demander "Est-ce que ton CPF est bloqué ?" avant F2.
+
+Reproduire les blocs EXACTEMENT avec tous les emojis.
+JAMAIS de salutations répétées - questions directes."""
                 )
             
             # === DÉTECTION AMBASSADEUR ===
@@ -381,7 +389,7 @@ Tu dois:
 3. Identifier le profil utilisateur (ambassadeur, apprenant, prospect)
 4. Si aucun bloc pertinent → Appliquer les règles:
    - Tentative récupération argent CPF → BLOC LEGAL immédiat
-   - Problème paiement → FILTRAGE PAIEMENT obligatoire
+   - Problème paiement → FILTRAGE PAIEMENT obligatoire avec séquence F→F1→F2
    - Demande spécifique → Bloc approprié
    - Aucune correspondance → Escalade avec Bloc G
 5. Maintenir TOUJOURS le ton WhatsApp chaleureux avec emojis
@@ -392,7 +400,7 @@ RÈGLES ABSOLUES:
 - Jamais d'improvisation
 - Un seul bloc par réponse
 - Respect total du contenu avec emojis
-- Filtrage paiement prioritaire
+- Filtrage paiement prioritaire avec séquence F1 obligatoire
 - Bloc Legal priorité absolue pour récupération argent CPF
 - Identification profil avant réponse"""
             )
@@ -406,7 +414,7 @@ RÈGLES ABSOLUES:
                 context_needed=["general"],
                 priority_level="low",
                 should_escalate=True,
-                system_instructions="Erreur système - cherche dans Supabase et reproduis les blocs trouvés exactement. Si problème paiement détecté, applique le filtrage obligatoire. Si récupération argent CPF détectée, applique le BLOC LEGAL immédiatement."
+                system_instructions="Erreur système - cherche dans Supabase et reproduis les blocs trouvés exactement. Si problème paiement détecté, applique le filtrage obligatoire avec séquence F1. Si récupération argent CPF détectée, applique le BLOC LEGAL immédiatement."
             )
 
 class MemoryManager:
@@ -448,7 +456,7 @@ async def root():
     return {
         "status": "healthy",
         "message": "JAK Company RAG API is running",
-        "version": "2.2 Optimized with legal block and filters"
+        "version": "2.3 Optimized with reinforced F1 block sequence"
     }
 
 @app.get("/health")
@@ -456,10 +464,11 @@ async def health_check():
     """Endpoint de santé détaillé"""
     return {
         "status": "healthy",
-        "version": "2.2 Optimized",
+        "version": "2.3 Optimized",
         "active_sessions": len(memory_store),
         "features": [
             "Enhanced RAG Decision Engine",
+            "Reinforced F1 Block Sequence (CPF > 45 days)",
             "Legal Block Detection (CPF Recovery)",
             "New Ambassadeur/Affiliation Definition Blocks",
             "Supabase Metadata Filtering",
@@ -474,7 +483,7 @@ async def health_check():
 
 @app.post("/optimize_rag")
 async def optimize_rag_decision(request: Request):
-    """Point d'entrée principal - VERSION ULTRA ROBUSTE avec nouveaux blocs et filtres"""
+    """Point d'entrée principal - VERSION ULTRA ROBUSTE avec séquence F1 renforcée"""
     
     session_id = "default_session"
     user_message = "message par défaut"
@@ -535,30 +544,31 @@ async def optimize_rag_decision(request: Request):
                 context_needed=["general"],
                 priority_level="low",
                 should_escalate=True,
-                system_instructions="Erreur d'analyse - cherche dans Supabase et applique les règles JAK Company. Si récupération argent CPF détectée, applique BLOC LEGAL."
+                system_instructions="Erreur d'analyse - cherche dans Supabase et applique les règles JAK Company. Si récupération argent CPF détectée, applique BLOC LEGAL. Si paiement CPF >45j, applique séquence F→F1→F2."
             )
         
         # === CONSTRUCTION RÉPONSE SÉCURISÉE ===
         try:
             response_data = {
-                "optimized_response": "Réponse optimisée générée avec nouveaux blocs et filtres",
+                "optimized_response": "Réponse optimisée générée avec séquence F1 renforcée",
                 "search_query": decision.search_query,
                 "search_strategy": decision.search_strategy,
                 "context_needed": decision.context_needed,
                 "priority_level": decision.priority_level,
                 "system_instructions": decision.system_instructions,
                 "escalade_required": decision.should_escalate,
-                "response_type": "rag_optimized_robust_v2.2",
+                "response_type": "rag_optimized_robust_v2.3",
                 "session_id": session_id,
-                "rag_confidence": 9, # Confiance très élevée avec nouveaux blocs et filtres
+                "rag_confidence": 9, # Confiance très élevée avec séquence F1 renforcée
                 "conversation_length": len(conversation_context),
                 "new_blocks_supported": ["AMBASSADEUR_DEFINITION", "AFFILIATION_DEFINITION", "BLOC_LEGAL"],
                 "metadata_filtering_enabled": True,
-                "anti_repetition_enabled": True
+                "anti_repetition_enabled": True,
+                "f1_sequence_reinforced": True
             }
             
             # Ajouter la réponse à la mémoire
-            MemoryManager.add_message(session_id, "RAG decision made with enhanced logic and filters", "assistant")
+            MemoryManager.add_message(session_id, "RAG decision made with reinforced F1 sequence", "assistant")
             
             logger.info(f"[{session_id}] RAG Response généré avec succès: {decision.search_strategy}")
             
@@ -627,7 +637,7 @@ async def memory_status():
 if __name__ == "__main__":
     import uvicorn
     try:
-        logger.info("🚀 Démarrage JAK Company RAG API Robust v2.2 avec bloc légal et filtres")
+        logger.info("🚀 Démarrage JAK Company RAG API Robust v2.3 avec séquence F1 renforcée")
         uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
     except Exception as e:
         logger.error(f"Erreur démarrage serveur: {str(e)}")
