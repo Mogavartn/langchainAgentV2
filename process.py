@@ -15,7 +15,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="JAK Company RAG Robust API", version="2.1")
+app = FastAPI(title="JAK Company RAG Robust API", version="2.2")
 
 # Configuration CORS
 app.add_middleware(
@@ -52,7 +52,7 @@ class SimpleRAGEngine:
     
     @staticmethod
     def analyze_intent(message: str, session_id: str = "default") -> SimpleRAGDecision:
-        """Analyse l'intention de manière robuste"""
+        """Analyse l'intention de manière robuste avec détection optimisée"""
         
         try:
             logger.info(f"🧠 ANALYSE INTENTION: '{message[:50]}...'")
@@ -75,13 +75,13 @@ class SimpleRAGEngine:
                         priority_level="medium",
                         should_escalate=False,
                         system_instructions="""CONTEXTE DÉTECTÉ: DÉFINITION AMBASSADEUR
-
 Tu dois OBLIGATOIREMENT:
 1. Chercher le bloc AMBASSADEUR_DEFINITION dans Supabase
 2. Reproduire EXACTEMENT le bloc avec tous les emojis
 3. Ne pas improviser ou résumer
 4. Proposer ensuite d'approfondir avec "devenir ambassadeur"
-5. Maintenir le ton chaleureux JAK Company"""
+5. Maintenir le ton chaleureux JAK Company
+6. JAMAIS de salutations répétées - contenu direct"""
                     )
                 elif "affiliation" in message_lower and ("mail" in message_lower or "reçu" in message_lower):
                     logger.info("🎯 DÉFINITION AFFILIATION DÉTECTÉE")
@@ -92,14 +92,43 @@ Tu dois OBLIGATOIREMENT:
                         priority_level="medium",
                         should_escalate=False,
                         system_instructions="""CONTEXTE DÉTECTÉ: DÉFINITION AFFILIATION
-
 Tu dois OBLIGATOIREMENT:
 1. Chercher le bloc AFFILIATION_DEFINITION dans Supabase
 2. Reproduire EXACTEMENT le bloc avec tous les emojis
 3. Poser la question de clarification (formation terminée vs ambassadeur)
 4. Ne pas combiner avec d'autres blocs
-5. Maintenir le ton WhatsApp chaleureux"""
+5. Maintenir le ton WhatsApp chaleureux
+6. JAMAIS de salutations répétées - contenu direct"""
                     )
+            
+            # === DÉTECTION BLOC LEGAL - PRIORITÉ CRITIQUE ===
+            legal_keywords = [
+                "décaisser le cpf", "récupérer mon argent", "récupérer l'argent", 
+                "prendre l'argent", "argent du cpf", "sortir l'argent",
+                "avoir mon argent", "toucher l'argent", "retirer l'argent",
+                "frauder", "arnaquer", "contourner", "bidouiller",
+                "récupérer cpf", "prendre cpf", "décaisser cpf"
+            ]
+            
+            if any(keyword in message_lower for keyword in legal_keywords):
+                logger.info("🚨 CONTEXTE LEGAL DÉTECTÉ - RECADRAGE OBLIGATOIRE")
+                return SimpleRAGDecision(
+                    search_query="legal fraude cpf récupérer argent règles",
+                    search_strategy="semantic",
+                    context_needed=["legal", "recadrage", "cpf", "fraude"],
+                    priority_level="high",
+                    should_escalate=False,
+                    system_instructions="""CONTEXTE DÉTECTÉ: RECADRAGE LEGAL OBLIGATOIRE
+
+Tu dois OBLIGATOIREMENT:
+1. Chercher le BLOC LEGAL dans Supabase avec category="Recadrage" et context="BLOC LEGAL"
+2. Reproduire EXACTEMENT le message de recadrage avec tous les emojis
+3. Expliquer: pas d'inscription si but = récupération argent CPF
+4. Orienter vers programme affiliation après formation sérieuse
+5. Maintenir un ton ferme mais pédagogique
+6. NE PAS négocier ou discuter - application stricte des règles
+7. JAMAIS de salutations répétées - recadrage direct"""
+                )
             
             # === DÉTECTION PAIEMENT (PRIORITÉ HAUTE) ===
             payment_keywords = [
@@ -110,7 +139,7 @@ Tu dois OBLIGATOIREMENT:
             ]
             
             if any(keyword in message_lower for keyword in payment_keywords):
-                logger.info("🎯 CONTEXTE PAIEMENT DÉTECTÉ")
+                logger.info("💰 CONTEXTE PAIEMENT DÉTECTÉ")
                 return SimpleRAGDecision(
                     search_query=f"paiement formation délai cpf opco {message}",
                     search_strategy="hybrid",
@@ -118,7 +147,6 @@ Tu dois OBLIGATOIREMENT:
                     priority_level="high",
                     should_escalate=True,
                     system_instructions="""CONTEXTE DÉTECTÉ: PAIEMENT FORMATION
-
 RÈGLE ABSOLUE - FILTRAGE PAIEMENT OBLIGATOIRE:
 1. Chercher d'abord dans Supabase les blocs paiement (Bloc F, F1, F2, F3)
 2. OBLIGATOIRE: Poser les questions de filtrage:
@@ -131,7 +159,8 @@ RÈGLE ABSOLUE - FILTRAGE PAIEMENT OBLIGATOIRE:
 4. Si CPF bloqué détecté → Bloc F1 ou F2
 5. Si délai OPCO dépassé → Bloc F3 + ESCALADE ADMIN
 6. Reproduire les blocs EXACTEMENT avec tous les emojis
-7. NE JAMAIS escalader sans avoir les infos financement + date"""
+7. NE JAMAIS escalader sans avoir les infos financement + date
+8. JAMAIS de salutations répétées - questions directes"""
                 )
             
             # === DÉTECTION AMBASSADEUR ===
@@ -153,18 +182,18 @@ RÈGLE ABSOLUE - FILTRAGE PAIEMENT OBLIGATOIRE:
                         priority_level="high",
                         should_escalate=False,
                         system_instructions="""CONTEXTE DÉTECTÉ: AMBASSADEUR
-
 Tu dois OBLIGATOIREMENT:
 1. Identifier le type de demande ambassadeur:
    - Découverte programme → Bloc B
-   - Devenir ambassadeur → Bloc D  
+   - Devenir ambassadeur → Bloc D 
    - Envoi contacts → Bloc E
    - Suivi paiement → Appliquer FILTRAGE PAIEMENT
 2. Chercher le bloc approprié dans Supabase
 3. Reproduire EXACTEMENT avec tous les emojis et liens
 4. Si demande "4 étapes" → donner les étapes complètes du Bloc D
 5. Ne jamais combiner plusieurs blocs
-6. Maintenir le ton WhatsApp avec emojis naturels"""
+6. Maintenir le ton WhatsApp avec emojis naturels
+7. JAMAIS de salutations répétées - contenu direct"""
                     )
             
             # === DÉTECTION ENVOI CONTACTS ===
@@ -174,7 +203,7 @@ Tu dois OBLIGATOIREMENT:
             ]
             
             if any(keyword in message_lower for keyword in contact_keywords):
-                logger.info("🎯 CONTEXTE ENVOI CONTACTS DÉTECTÉ")
+                logger.info("📋 CONTEXTE ENVOI CONTACTS DÉTECTÉ")
                 return SimpleRAGDecision(
                     search_query="envoyer contacts formulaire nom prénom téléphone",
                     search_strategy="semantic",
@@ -182,13 +211,13 @@ Tu dois OBLIGATOIREMENT:
                     priority_level="medium",
                     should_escalate=False,
                     system_instructions="""CONTEXTE DÉTECTÉ: ENVOI CONTACTS
-
 Tu dois OBLIGATOIREMENT:
 1. Chercher le Bloc E dans Supabase
 2. Reproduire EXACTEMENT avec le lien formulaire
 3. Mentionner: nom, prénom, contact (tel/email)
 4. Bonus SIRET pour les pros
-5. Maintenir le ton encourageant et simple"""
+5. Maintenir le ton encourageant et simple
+6. JAMAIS de salutations répétées - contenu direct"""
                 )
             
             # === DÉTECTION FORMATION ===
@@ -199,7 +228,7 @@ Tu dois OBLIGATOIREMENT:
             ]
             
             if any(keyword in message_lower for keyword in formation_keywords):
-                logger.info("🎯 CONTEXTE FORMATION DÉTECTÉ")
+                logger.info("📚 CONTEXTE FORMATION DÉTECTÉ")
                 return SimpleRAGDecision(
                     search_query=f"formation catalogue cpf opco {message}",
                     search_strategy="semantic",
@@ -207,13 +236,13 @@ Tu dois OBLIGATOIREMENT:
                     priority_level="medium",
                     should_escalate=False,
                     system_instructions="""CONTEXTE DÉTECTÉ: FORMATION
-
 Tu dois OBLIGATOIREMENT:
 1. Si question CPF → Bloc C (plus de CPF disponible)
 2. Chercher les informations formations dans Supabase
 3. Identifier le profil (pro, particulier, entreprise)
 4. Orienter vers les bons financements (OPCO, entreprise)
-5. Proposer contact humain si besoin (Bloc G)"""
+5. Proposer contact humain si besoin (Bloc G)
+6. JAMAIS de salutations répétées - contenu direct"""
                 )
             
             # === DÉTECTION PARLER À UN HUMAIN ===
@@ -223,7 +252,7 @@ Tu dois OBLIGATOIREMENT:
             ]
             
             if any(keyword in message_lower for keyword in human_keywords):
-                logger.info("🎯 CONTEXTE CONTACT HUMAIN DÉTECTÉ")
+                logger.info("👥 CONTEXTE CONTACT HUMAIN DÉTECTÉ")
                 return SimpleRAGDecision(
                     search_query="parler humain contact équipe",
                     search_strategy="semantic",
@@ -231,13 +260,13 @@ Tu dois OBLIGATOIREMENT:
                     priority_level="medium",
                     should_escalate=True,
                     system_instructions="""CONTEXTE DÉTECTÉ: CONTACT HUMAIN
-
 Tu dois OBLIGATOIREMENT:
 1. Chercher le Bloc G dans Supabase
 2. Reproduire EXACTEMENT avec les horaires
 3. Proposer d'abord de répondre directement
 4. Mentionner les horaires: 9h-17h, lun-ven
-5. Escalader si vraiment nécessaire"""
+5. Escalader si vraiment nécessaire
+6. JAMAIS de salutations répétées - contenu direct"""
                 )
             
             # === DÉTECTION CPF ===
@@ -247,21 +276,21 @@ Tu dois OBLIGATOIREMENT:
             ]
             
             if any(keyword in message_lower for keyword in cpf_keywords):
-                logger.info("🎯 CONTEXTE CPF DÉTECTÉ")
+                logger.info("🎓 CONTEXTE CPF DÉTECTÉ")
                 return SimpleRAGDecision(
                     search_query="cpf formation financement opco",
                     search_strategy="semantic",
                     context_needed=["cpf", "financement", "alternatives"],
                     priority_level="medium",
-                    should_escalade=False,
+                    should_escalate=False,
                     system_instructions="""CONTEXTE DÉTECTÉ: CPF
-
 Tu dois OBLIGATOIREMENT:
 1. Chercher le Bloc C dans Supabase
 2. Reproduire EXACTEMENT: plus de CPF pour le moment
 3. Proposer alternatives pour pros (OPCO, entreprise)
 4. Donner les liens réseaux sociaux pour être tenu au courant
-5. Proposer d'expliquer pour les pros"""
+5. Proposer d'expliquer pour les pros
+6. JAMAIS de salutations répétées - contenu direct"""
                 )
             
             # === DÉTECTION ARGUMENTAIRE/PROSPECT ===
@@ -271,22 +300,22 @@ Tu dois OBLIGATOIREMENT:
             ]
             
             if any(keyword in message_lower for keyword in prospect_keywords):
-                logger.info("🎯 CONTEXTE PROSPECT/ARGUMENTAIRE DÉTECTÉ")
+                logger.info("💼 CONTEXTE PROSPECT/ARGUMENTAIRE DÉTECTÉ")
                 return SimpleRAGDecision(
                     search_query="argumentaire prospect entreprise formation",
                     search_strategy="semantic",
                     context_needed=["prospect", "argumentaire", "présentation"],
                     priority_level="medium",
-                    should_escalade=False,
+                    should_escalate=False,
                     system_instructions="""CONTEXTE DÉTECTÉ: ARGUMENTAIRE PROSPECT
-
 Tu dois OBLIGATOIREMENT:
 1. Identifier le type d'argumentaire:
    - Que dire à un prospect → Bloc H
-   - Argumentaire entreprise → Bloc I1  
+   - Argumentaire entreprise → Bloc I1 
    - Argumentaire ambassadeur → Bloc I2
 2. Reproduire le bloc approprié EXACTEMENT
-3. Maintenir le ton professionnel mais accessible"""
+3. Maintenir le ton professionnel mais accessible
+4. JAMAIS de salutations répétées - contenu direct"""
                 )
             
             # === DÉTECTION COMBIEN DE TEMPS ===
@@ -296,45 +325,21 @@ Tu dois OBLIGATOIREMENT:
             ]
             
             if any(keyword in message_lower for keyword in time_keywords):
-                logger.info("🎯 CONTEXTE DÉLAI/TEMPS DÉTECTÉ")
+                logger.info("⏰ CONTEXTE DÉLAI/TEMPS DÉTECTÉ")
                 return SimpleRAGDecision(
                     search_query="délai temps paiement formation mois",
                     search_strategy="semantic",
                     context_needed=["délai", "temps", "durée"],
                     priority_level="medium",
-                    should_escalade=False,
+                    should_escalate=False,
                     system_instructions="""CONTEXTE DÉTECTÉ: DÉLAI/TEMPS
-
 Tu dois OBLIGATOIREMENT:
 1. Chercher le Bloc J dans Supabase
 2. Reproduire EXACTEMENT: 3-6 mois en moyenne
 3. Expliquer les facteurs (financement, réactivité, traitement)
 4. Donner les exemples de délais par type
-5. Conseiller d'envoyer plusieurs contacts au début"""
-                )
-            
-            # === DÉTECTION MOTS ILLÉGAUX ===
-            illegal_keywords = [
-                "décaisser le cpf", "récupérer mon argent", "frauder",
-                "arnaquer", "contourner", "bidouiller"
-            ]
-            
-            if any(keyword in message_lower for keyword in illegal_keywords):
-                logger.info("🎯 CONTEXTE LEGAL DÉTECTÉ")
-                return SimpleRAGDecision(
-                    search_query="legal fraude cpf règles",
-                    search_strategy="semantic",
-                    context_needed=["legal", "recadrage"],
-                    priority_level="high",
-                    should_escalade=False,
-                    system_instructions="""CONTEXTE DÉTECTÉ: RECADRAGE LEGAL
-
-Tu dois OBLIGATOIREMENT:
-1. Appliquer le Bloc LEGAL immédiatement
-2. Reproduire EXACTEMENT le message de recadrage
-3. Expliquer: pas d'inscription si but = rémunération
-4. Orienter vers programme affiliation après formation sérieuse
-5. Maintenir un ton ferme mais pédagogique"""
+5. Conseiller d'envoyer plusieurs contacts au début
+6. JAMAIS de salutations répétées - contenu direct"""
                 )
             
             # === DÉTECTION AGRESSIVITÉ ===
@@ -344,25 +349,25 @@ Tu dois OBLIGATOIREMENT:
             ]
             
             if any(keyword in message_lower for keyword in aggressive_keywords):
-                logger.info("🎯 CONTEXTE AGRO DÉTECTÉ")
+                logger.info("😤 CONTEXTE AGRO DÉTECTÉ")
                 return SimpleRAGDecision(
                     search_query="gestion agressivité calme",
                     search_strategy="semantic",
                     context_needed=["agro", "apaisement"],
                     priority_level="high",
-                    should_escalade=False,
+                    should_escalate=False,
                     system_instructions="""CONTEXTE DÉTECTÉ: GESTION AGRO
-
 Tu dois OBLIGATOIREMENT:
 1. Appliquer le Bloc AGRO immédiatement
 2. Reproduire EXACTEMENT avec le poème/chanson d'amour
 3. Maintenir un ton humoristique mais ferme
 4. Ne pas alimenter le conflit
-5. Rediriger vers une conversation constructive"""
+5. Rediriger vers une conversation constructive
+6. JAMAIS de salutations répétées - gestion directe"""
                 )
             
             # === CONTEXTE GÉNÉRAL ===
-            logger.info("🎯 CONTEXTE GÉNÉRAL")
+            logger.info("🔄 CONTEXTE GÉNÉRAL")
             return SimpleRAGDecision(
                 search_query=message,
                 search_strategy="semantic",
@@ -370,26 +375,28 @@ Tu dois OBLIGATOIREMENT:
                 priority_level="low",
                 should_escalate=False,
                 system_instructions="""CONTEXTE GÉNÉRAL
-
 Tu dois:
 1. Faire une recherche large dans Supabase Vector Store 2
 2. Analyser les résultats pour identifier le bon bloc
 3. Identifier le profil utilisateur (ambassadeur, apprenant, prospect)
 4. Si aucun bloc pertinent → Appliquer les règles:
+   - Tentative récupération argent CPF → BLOC LEGAL immédiat
    - Problème paiement → FILTRAGE PAIEMENT obligatoire
    - Demande spécifique → Bloc approprié
    - Aucune correspondance → Escalade avec Bloc G
 5. Maintenir TOUJOURS le ton WhatsApp chaleureux avec emojis
 6. Reproduire les blocs EXACTEMENT sans modification
+7. JAMAIS de salutations répétées - contenu direct
 
 RÈGLES ABSOLUES:
 - Jamais d'improvisation
 - Un seul bloc par réponse
 - Respect total du contenu avec emojis
 - Filtrage paiement prioritaire
+- Bloc Legal priorité absolue pour récupération argent CPF
 - Identification profil avant réponse"""
             )
-            
+        
         except Exception as e:
             logger.error(f"Erreur dans analyze_intent: {str(e)}")
             # Retour de secours
@@ -399,7 +406,7 @@ RÈGLES ABSOLUES:
                 context_needed=["general"],
                 priority_level="low",
                 should_escalate=True,
-                system_instructions="Erreur système - cherche dans Supabase et reproduis les blocs trouvés exactement. Si problème paiement détecté, applique le filtrage obligatoire."
+                system_instructions="Erreur système - cherche dans Supabase et reproduis les blocs trouvés exactement. Si problème paiement détecté, applique le filtrage obligatoire. Si récupération argent CPF détectée, applique le BLOC LEGAL immédiatement."
             )
 
 class MemoryManager:
@@ -421,7 +428,7 @@ class MemoryManager:
             # Limiter à 10 messages max
             if len(memory_store[session_id]) > 10:
                 memory_store[session_id] = memory_store[session_id][-10:]
-                
+            
         except Exception as e:
             logger.error(f"Erreur mémoire: {str(e)}")
     
@@ -435,14 +442,13 @@ class MemoryManager:
             return []
 
 # ENDPOINTS API
-
 @app.get("/")
 async def root():
     """Endpoint racine pour vérifier que l'API fonctionne"""
     return {
         "status": "healthy",
         "message": "JAK Company RAG API is running",
-        "version": "2.1 Optimized with new blocks"
+        "version": "2.2 Optimized with legal block and filters"
     }
 
 @app.get("/health")
@@ -450,23 +456,25 @@ async def health_check():
     """Endpoint de santé détaillé"""
     return {
         "status": "healthy",
-        "version": "2.1 Optimized",
+        "version": "2.2 Optimized",
         "active_sessions": len(memory_store),
         "features": [
             "Enhanced RAG Decision Engine",
+            "Legal Block Detection (CPF Recovery)",
             "New Ambassadeur/Affiliation Definition Blocks",
+            "Supabase Metadata Filtering",
             "Context-Aware Search",
+            "Anti-Repetition System",
             "Robust Error Handling",
             "Memory Management", 
-            "Ultra-Stable Processing",
-            "Payment Filtering Priority",
-            "Legal/Agro Detection"
+            "Ultra-Stable Processing", 
+            "Payment Filtering Priority"
         ]
     }
 
 @app.post("/optimize_rag")
 async def optimize_rag_decision(request: Request):
-    """Point d'entrée principal - VERSION ULTRA ROBUSTE avec nouveaux blocs"""
+    """Point d'entrée principal - VERSION ULTRA ROBUSTE avec nouveaux blocs et filtres"""
     
     session_id = "default_session"
     user_message = "message par défaut"
@@ -490,7 +498,7 @@ async def optimize_rag_decision(request: Request):
                 "session_id": "error_session",
                 "rag_confidence": 0
             }
-
+        
         # === EXTRACTION SÉCURISÉE DES DONNÉES ===
         try:
             user_message = str(body.get("message", "")).strip()
@@ -498,14 +506,14 @@ async def optimize_rag_decision(request: Request):
             
             if not user_message:
                 user_message = "message vide"
-                
+            
             logger.info(f"[{session_id}] Message: '{user_message[:50]}...'")
             
         except Exception as e:
             logger.error(f"Erreur extraction données: {str(e)}")
             user_message = "erreur extraction"
             session_id = "error_session"
-
+        
         # === GESTION MÉMOIRE SÉCURISÉE ===
         try:
             MemoryManager.add_message(session_id, user_message, "user")
@@ -513,7 +521,7 @@ async def optimize_rag_decision(request: Request):
         except Exception as e:
             logger.error(f"Erreur mémoire: {str(e)}")
             conversation_context = []
-
+        
         # === ANALYSE D'INTENTION SÉCURISÉE ===
         try:
             decision = SimpleRAGEngine.analyze_intent(user_message, session_id)
@@ -527,28 +535,30 @@ async def optimize_rag_decision(request: Request):
                 context_needed=["general"],
                 priority_level="low",
                 should_escalate=True,
-                system_instructions="Erreur d'analyse - cherche dans Supabase et applique les règles JAK Company"
+                system_instructions="Erreur d'analyse - cherche dans Supabase et applique les règles JAK Company. Si récupération argent CPF détectée, applique BLOC LEGAL."
             )
-
+        
         # === CONSTRUCTION RÉPONSE SÉCURISÉE ===
         try:
             response_data = {
-                "optimized_response": "Réponse optimisée générée avec nouveaux blocs",
+                "optimized_response": "Réponse optimisée générée avec nouveaux blocs et filtres",
                 "search_query": decision.search_query,
                 "search_strategy": decision.search_strategy,
                 "context_needed": decision.context_needed,
                 "priority_level": decision.priority_level,
                 "system_instructions": decision.system_instructions,
                 "escalade_required": decision.should_escalate,
-                "response_type": "rag_optimized_robust_v2.1",
+                "response_type": "rag_optimized_robust_v2.2",
                 "session_id": session_id,
-                "rag_confidence": 9,  # Confiance très élevée avec nouveaux blocs
+                "rag_confidence": 9, # Confiance très élevée avec nouveaux blocs et filtres
                 "conversation_length": len(conversation_context),
-                "new_blocks_supported": ["AMBASSADEUR_DEFINITION", "AFFILIATION_DEFINITION"]
+                "new_blocks_supported": ["AMBASSADEUR_DEFINITION", "AFFILIATION_DEFINITION", "BLOC_LEGAL"],
+                "metadata_filtering_enabled": True,
+                "anti_repetition_enabled": True
             }
             
             # Ajouter la réponse à la mémoire
-            MemoryManager.add_message(session_id, "RAG decision made with enhanced logic", "assistant")
+            MemoryManager.add_message(session_id, "RAG decision made with enhanced logic and filters", "assistant")
             
             logger.info(f"[{session_id}] RAG Response généré avec succès: {decision.search_strategy}")
             
@@ -568,7 +578,7 @@ async def optimize_rag_decision(request: Request):
                 "session_id": session_id,
                 "rag_confidence": 0
             }
-
+            
     except Exception as e:
         # === GESTION D'ERREUR GLOBALE ===
         logger.error(f"ERREUR GLOBALE: {str(e)}")
@@ -586,7 +596,7 @@ async def optimize_rag_decision(request: Request):
             "response_type": "global_error_fallback",
             "session_id": session_id,
             "rag_confidence": 0,
-            "error_details": str(e)[:100]  # Limiter la taille de l'erreur
+            "error_details": str(e)[:100] # Limiter la taille de l'erreur
         }
 
 @app.post("/clear_memory/{session_id}")
@@ -617,7 +627,7 @@ async def memory_status():
 if __name__ == "__main__":
     import uvicorn
     try:
-        logger.info("🚀 Démarrage JAK Company RAG API Robust v2.1 avec nouveaux blocs")
+        logger.info("🚀 Démarrage JAK Company RAG API Robust v2.2 avec bloc légal et filtres")
         uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
     except Exception as e:
         logger.error(f"Erreur démarrage serveur: {str(e)}")
