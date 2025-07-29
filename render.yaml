@@ -1,9 +1,28 @@
 services:
   - type: web
-    name: langchain-api
+    name: jak-company-rag-api
     env: python
-    buildCommand: "pip install -r requirements.txt"
-    startCommand: "uvicorn api.process:app --host 0.0.0.0 --port $PORT"
+    region: oregon
+    plan: starter
+    buildCommand: "pip install --upgrade pip && pip install -r requirements.txt"
+    startCommand: "python process.py"
+    healthCheckPath: "/health"
     envVars:
       - key: PYTHON_VERSION
         value: "3.11"
+      - key: PORT
+        value: "10000"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: PYTHONDONTWRITEBYTECODE
+        value: "1"
+      - key: DISABLE_ACCESS_LOG
+        value: "true"
+      - key: MAX_MEMORY_SESSIONS
+        value: "1000"
+      - key: SESSION_TTL_SECONDS
+        value: "3600"
+      - key: CACHE_TTL_SECONDS
+        value: "1800"
+      - key: OPENAI_API_KEY
+        sync: false
