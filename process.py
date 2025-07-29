@@ -93,7 +93,22 @@ class KeywordSets:
             "prendre l'argent", "argent du cpf", "sortir l'argent",
             "avoir mon argent", "toucher l'argent", "retirer l'argent",
             "frauder", "arnaquer", "contourner", "bidouiller",
-            "récupérer cpf", "prendre cpf", "décaisser cpf"
+            "récupérer cpf", "prendre cpf", "décaisser cpf",
+            # NOUVELLES VARIANTES POUR CAPTURER TOUTES LES DEMANDES DE RÉCUPÉRATION
+            "je veux l'argent", "je veux récupérer", "je veux prendre",
+            "je veux l'argent de mon cpf", "je veux récupérer mon argent",
+            "je veux prendre l'argent", "je veux l'argent du cpf",
+            "je veux récupérer l'argent", "je veux prendre l'argent",
+            "récupérer mon argent de mon cpf", "prendre mon argent de mon cpf",
+            "récupérer l'argent de mon cpf", "prendre l'argent de mon cpf",
+            "récupérer mon argent du cpf", "prendre mon argent du cpf",
+            "récupérer l'argent du cpf", "prendre l'argent du cpf",
+            "argent de mon cpf", "argent du cpf pour moi",
+            "récupération argent cpf", "prise argent cpf",
+            "rémunération pour sois-même", "rémunération pour moi",
+            "récupération pour sois-même", "récupération pour moi",
+            "prendre pour sois-même", "prendre pour moi",
+            "argent cpf pour moi", "argent cpf pour sois-même"
         ])
         
         self.payment_keywords = frozenset([
@@ -386,12 +401,14 @@ Tu dois OBLIGATOIREMENT:
 
 Tu dois OBLIGATOIREMENT:
 1. Chercher le BLOC LEGAL dans Supabase avec category="Recadrage" et context="BLOC LEGAL"
-2. Reproduire EXACTEMENT le message de recadrage avec tous les emojis
+2. Reproduire EXACTEMENT ce message de recadrage avec tous les emojis:
+   "On ne peut pas inscrire une personne dans une formation si son but est d'être rémunérée pour ça. ❌ En revanche, si tu fais la formation sérieusement, tu peux ensuite participer au programme d'affiliation et parrainer d'autres personnes. 🌟"
 3. Expliquer: pas d'inscription si but = récupération argent CPF
 4. Orienter vers programme affiliation après formation sérieuse
 5. Maintenir un ton ferme mais pédagogique
 6. NE PAS négocier ou discuter - application stricte des règles
-7. JAMAIS de salutations répétées - recadrage direct"""
+7. JAMAIS de salutations répétées - recadrage direct
+8. IMPORTANT: Ce bloc doit être appliqué pour TOUTES les demandes de récupération d'argent CPF"""
         )
     
     def _create_payment_decision(self, message: str) -> SimpleRAGDecision:
