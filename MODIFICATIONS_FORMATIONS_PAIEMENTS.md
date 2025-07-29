@@ -105,10 +105,15 @@ On va régler ça vite ! 💪
 1. BLOC K (formations disponibles) - OBLIGATOIRE
 2. Puis informations sur les financements disponibles
 
+### Question : "j'ai pas été payé" + "paiement en direct oui et terminé il y a 8 jours"
+**Réponse attendue** :
+1. BLOC J (paiement direct délai dépassé) - car 8 jours > 7 jours
+2. Escalade immédiate vers l'équipe admin
+
 ### Question : "j'ai pas été payé" + "paiement en direct oui et terminé il y a 4 jours"
 **Réponse attendue** :
-1. BLOC J (paiement direct délai dépassé) - car 4 jours > 7 jours
-2. Escalade immédiate vers l'équipe admin
+1. Réponse normale : "On est encore dans les délais (7 jours max)"
+2. PAS d'escalade car 4 jours < 7 jours
 
 ## 6. Tests Recommandés
 

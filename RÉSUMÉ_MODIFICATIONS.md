@@ -107,7 +107,8 @@ On va régler ça vite ! 💪
 
 ### Paiements Directs
 **Avant :** "j'ai pas été payé" + "paiement direct oui et terminé il y a 4 jours" → Questions de filtrage
-**Après :** "j'ai pas été payé" + "paiement direct oui et terminé il y a 4 jours" → **BLOC J** (délai dépassé) + escalade
+**Après :** "j'ai pas été payé" + "paiement direct oui et terminé il y a 8 jours" → **BLOC J** (délai dépassé) + escalade
+**Après :** "j'ai pas été payé" + "paiement direct oui et terminé il y a 4 jours" → **Réponse normale** (encore dans les délais)
 
 ### Détection Financement
 **Avant :** "j'ai payé toute seule" → Question de clarification
