@@ -1,10 +1,10 @@
 services:
   - type: web
-    name: jak-company-rag-api
+    name: jak-company-rag-api-minimal
     env: python
     region: oregon
     plan: starter
-    buildCommand: "pip install --upgrade pip setuptools wheel && pip install --prefer-binary --no-build-isolation -r requirements.txt"
+    buildCommand: "pip install --upgrade pip && pip install --only-binary=all --no-compile -r requirements-render.txt"
     startCommand: "python process.py"
     healthCheckPath: "/health"
     envVars:

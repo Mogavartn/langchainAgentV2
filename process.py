@@ -14,6 +14,21 @@ import time
 from collections import defaultdict
 import weakref
 
+# Handle optional dependencies gracefully
+try:
+    import tiktoken
+    TIKTOKEN_AVAILABLE = True
+except ImportError:
+    TIKTOKEN_AVAILABLE = False
+    logger.warning("tiktoken not available - some features may be limited")
+
+try:
+    from langchain import LLMChain
+    LANGCHAIN_AVAILABLE = True
+except ImportError:
+    LANGCHAIN_AVAILABLE = False
+    logger.warning("langchain not available - using fallback responses")
+
 # Performance-optimized logging configuration
 logging.basicConfig(
     level=logging.INFO,
