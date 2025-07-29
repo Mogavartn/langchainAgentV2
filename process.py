@@ -163,6 +163,43 @@ class KeywordSets:
             "merde", "putain", "con", "salaud", "nul", "arnaque",
             "escroquerie", "voleur", "marre", "insulte"
         ])
+        
+        # NOUVEAUX MOTS-CLÉS POUR BLOCS 6.1 ET 6.2
+        self.escalade_admin_keywords = frozenset([
+            # Paiements et délais anormaux
+            "délai anormal", "retard anormal", "paiement en retard", "virement en retard",
+            "pas reçu mon argent", "argent pas arrivé", "virement pas reçu",
+            "paiement bloqué", "virement bloqué", "argent bloqué",
+            "pas reçu", "n'ai pas reçu", "n'ai pas eu", "pas eu",
+            "en retard", "retard", "bloqué", "bloquée",
+            # Preuves et dossiers
+            "justificatif", "preuve", "attestation", "certificat", "facture",
+            "dossier bloqué", "dossier en attente", "dossier suspendu",
+            "consultation fichier", "accès fichier", "voir mon dossier",
+            "état dossier", "suivi dossier", "dossier administratif",
+            "dossier", "fichier", "accès", "consultation",
+            # Problèmes techniques
+            "erreur système", "bug", "problème technique", "dysfonctionnement",
+            "impossible de", "ne fonctionne pas", "ça marche pas",
+            "problème", "erreur", "dysfonctionnement"
+        ])
+        
+        self.escalade_co_keywords = frozenset([
+            # Deals stratégiques
+            "deal", "partenariat", "collaboration", "projet spécial",
+            "offre spéciale", "tarif préférentiel", "accord commercial",
+            "négociation", "proposition commerciale", "devis spécial",
+            # Besoin d'appel
+            "appel téléphonique", "appeler", "téléphoner", "discussion téléphonique",
+            "parler au téléphone", "échange téléphonique", "conversation téléphonique",
+            # Accompagnement humain
+            "accompagnement", "suivi personnalisé", "conseil personnalisé",
+            "assistance personnalisée", "aide personnalisée", "support personnalisé",
+            "conseiller dédié", "accompagnateur", "mentor", "coach",
+            # Situations complexes
+            "situation complexe", "cas particulier", "dossier complexe",
+            "problème spécifique", "demande spéciale", "besoin particulier"
+        ])
 
 # Initialize keyword sets globally for better performance
 KEYWORD_SETS = KeywordSets()
@@ -243,6 +280,15 @@ class OptimizedRAGEngine:
             # Legal detection (critical priority)
             elif self._has_keywords(message_lower, self.keyword_sets.legal_keywords):
                 decision = self._create_legal_decision()
+            
+            # NOUVELLES DÉTECTIONS POUR BLOCS 6.1 ET 6.2 (PRIORITÉ HAUTE)
+            # Escalade Admin (BLOC 6.1) - Priorité haute
+            elif self._has_keywords(message_lower, self.keyword_sets.escalade_admin_keywords):
+                decision = self._create_escalade_admin_decision()
+            
+            # Escalade CO (BLOC 6.2) - Priorité haute
+            elif self._has_keywords(message_lower, self.keyword_sets.escalade_co_keywords):
+                decision = self._create_escalade_co_decision()
             
             # Payment detection (high priority)
             elif self._has_keywords(message_lower, self.keyword_sets.payment_keywords):
@@ -365,7 +411,7 @@ Tu dois OBLIGATOIREMENT:
             search_strategy="hybrid",
             context_needed=context_needed,
             priority_level="high",
-            should_escalate=False,
+            should_escalate=False,  # L'escalade sera déterminée par la logique métier
             system_instructions="""CONTEXTE DÉTECTÉ: PAIEMENT FORMATION
 RÈGLE ABSOLUE - FILTRAGE PAIEMENT OBLIGATOIRE:
 
@@ -405,6 +451,11 @@ INTERDICTION ABSOLUE : Passer directement au Bloc F2 sans poser la question F1.
 OBLIGATION : Toujours demander "Est-ce que ton CPF est bloqué ?" avant F2.
 OBLIGATION : Si financement direct ET > 7 jours → BLOC J immédiat.
 OBLIGATION : Si financement direct ET ≤ 7 jours → Réponse normale (pas d'escalade).
+
+DÉTECTION AUTOMATIQUE ESCALADE:
+- Si délai > 7 jours (direct) → BLOC J + ESCALADE ADMIN (BLOC 6.1)
+- Si délai > 2 mois (OPCO) → ESCALADE ADMIN (BLOC 6.1)
+- Si délai > 45 jours (CPF) → ESCALADE ADMIN (BLOC 6.1)
 
 Reproduire les blocs EXACTEMENT avec tous les emojis.
 JAMAIS de salutations répétées - questions directes."""
@@ -554,6 +605,63 @@ Tu dois OBLIGATOIREMENT:
 4. Ne pas alimenter le conflit
 5. Rediriger vers une conversation constructive
 6. JAMAIS de salutations répétées - gestion directe"""
+        )
+    
+    def _create_escalade_admin_decision(self) -> SimpleRAGDecision:
+        return SimpleRAGDecision(
+            search_query="escalade admin paiement délai anormal dossier preuve",
+            search_strategy="semantic",
+            context_needed=["escalade", "admin", "paiement", "délai", "dossier"],
+            priority_level="high",
+            should_escalate=True,
+            system_instructions="""CONTEXTE DÉTECTÉ: ESCALADE AGENT ADMIN (BLOC 6.1)
+UTILISATION: Paiements, preuves, délais anormaux, dossiers, consultation de fichiers
+
+Tu dois OBLIGATOIREMENT:
+1. Appliquer le BLOC 6.1 immédiatement
+2. Reproduire EXACTEMENT ce message:
+🔁 ESCALADE AGENT ADMIN
+🕐 Notre équipe traite les demandes du lundi au vendredi, de 9h à 17h (hors pause déjeuner).
+On te tiendra informé dès qu'on a du nouveau ✅
+
+3. Identifier le type de problème:
+   - Paiement en retard/anormal → Escalade admin
+   - Dossier bloqué/en attente → Escalade admin  
+   - Besoin de preuves/justificatifs → Escalade admin
+   - Consultation de fichiers → Escalade admin
+   - Problème technique → Escalade admin
+
+4. Maintenir le ton professionnel et rassurant
+5. JAMAIS de salutations répétées - escalade directe
+6. IMPORTANT: Cette escalade doit être visible dans la BDD pour le suivi"""
+        )
+    
+    def _create_escalade_co_decision(self) -> SimpleRAGDecision:
+        return SimpleRAGDecision(
+            search_query="escalade co deal stratégique appel accompagnement",
+            search_strategy="semantic",
+            context_needed=["escalade", "co", "deal", "appel", "accompagnement"],
+            priority_level="high",
+            should_escalate=True,
+            system_instructions="""CONTEXTE DÉTECTÉ: ESCALADE AGENT CO (BLOC 6.2)
+UTILISATION: Deals stratégiques, besoin d'appel, accompagnement humain
+
+Tu dois OBLIGATOIREMENT:
+1. Appliquer le BLOC 6.2 immédiatement
+2. Reproduire EXACTEMENT ce message:
+🔁 ESCALADE AGENT CO
+🕐 Notre équipe traite les demandes du lundi au vendredi, de 9h à 17h (hors pause déjeuner).
+Nous te répondrons dès que possible.
+
+3. Identifier le type de demande:
+   - Deal stratégique/partenariat → Escalade CO
+   - Besoin d'appel téléphonique → Escalade CO
+   - Accompagnement personnalisé → Escalade CO
+   - Situation complexe/particulière → Escalade CO
+
+4. Maintenir le ton professionnel et rassurant
+5. JAMAIS de salutations répétées - escalade directe
+6. IMPORTANT: Cette escalade doit être visible dans la BDD pour le suivi"""
         )
     
     def _create_general_decision(self, message: str) -> SimpleRAGDecision:
