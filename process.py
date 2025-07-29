@@ -213,7 +213,15 @@ class KeywordSets:
             "conseiller dédié", "accompagnateur", "mentor", "coach",
             # Situations complexes
             "situation complexe", "cas particulier", "dossier complexe",
-            "problème spécifique", "demande spéciale", "besoin particulier"
+            "problème spécifique", "demande spéciale", "besoin particulier",
+            # Mise en relation et rémunération (NOUVEAUX)
+            "mise en relation", "mettre en relation", "mettre en contact",
+            "organisme de formation", "formation personnalisée", "100% financée",
+            "s'occupent de tout", "entreprise rien à avancer", "entreprise rien à gérer",
+            "rémunéré", "rémunération", "si ça se met en place",
+            "équipe qui gère", "gère tout", "gratuitement", "rapidement",
+            "mettre en contact avec eux", "voir ce qui est possible",
+            "super sérieux", "formations personnalisées", "souvent 100% financées"
         ])
 
 # Initialize keyword sets globally for better performance
@@ -267,6 +275,23 @@ class OptimizedRAGEngine:
         ])
         return any(term in message_lower for term in direct_financing_terms)
     
+    @lru_cache(maxsize=50)
+    def _detect_agent_commercial_pattern(self, message_lower: str) -> bool:
+        """Détecte les patterns typiques des agents commerciaux et mise en relation"""
+        agent_patterns = frozenset([
+            "mise en relation", "mettre en relation", "mettre en contact",
+            "organisme de formation", "formation personnalisée", "100% financée",
+            "s'occupent de tout", "entreprise rien à avancer", "entreprise rien à gérer",
+            "rémunéré", "rémunération", "si ça se met en place",
+            "équipe qui gère", "gère tout", "gratuitement", "rapidement",
+            "mettre en contact avec eux", "voir ce qui est possible",
+            "super sérieux", "formations personnalisées", "souvent 100% financées",
+            "je peux être rémunéré", "je peux être payé", "commission",
+            "si ça se met en place", "si ça marche", "si ça fonctionne",
+            "travailler avec", "collaborer avec", "partenariat"
+        ])
+        return any(term in message_lower for term in agent_patterns)
+    
     async def analyze_intent(self, message: str, session_id: str = "default") -> SimpleRAGDecision:
         """Analyse l'intention de manière robuste et optimisée"""
         
@@ -303,6 +328,10 @@ class OptimizedRAGEngine:
             
             # Escalade CO (BLOC 6.2) - Priorité haute
             elif self._has_keywords(message_lower, self.keyword_sets.escalade_co_keywords):
+                decision = self._create_escalade_co_decision()
+            
+            # Détection spécifique des patterns d'agents commerciaux (NOUVEAU)
+            elif self._detect_agent_commercial_pattern(message_lower):
                 decision = self._create_escalade_co_decision()
             
             # Payment detection (high priority)
