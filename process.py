@@ -80,6 +80,61 @@ class OptimizedMemoryStore:
 # Initialize optimized memory store
 memory_store = OptimizedMemoryStore()
 
+# Utility functions for n8n integration
+def determine_next_action(intent_analysis: Dict) -> str:
+    """Determine the next action for n8n workflow routing"""
+    intent = intent_analysis.get("intent", "general")
+    confidence = intent_analysis.get("confidence", 0.0)
+    
+    if confidence < 0.3:
+        return "escalate_human"
+    elif intent in ["payment", "legal", "cpf_fraud"]:
+        return "priority_handling"
+    elif intent in ["formation", "ambassador"]:
+        return "standard_flow"
+    else:
+        return "general_response"
+
+def get_workflow_priority(intent_analysis: Dict) -> str:
+    """Get workflow priority for n8n task management"""
+    intent = intent_analysis.get("intent", "general")
+    
+    priority_map = {
+        "legal": "high",
+        "payment": "high", 
+        "cpf_fraud": "critical",
+        "formation": "medium",
+        "ambassador": "medium",
+        "contact": "low",
+        "general": "low"
+    }
+    
+    return priority_map.get(intent, "low")
+
+def check_followup_needed(response_text: str) -> bool:
+    """Check if response requires follow-up action in n8n"""
+    followup_indicators = [
+        "nous te tiendrons informé",
+        "notre équipe traite",
+        "escalade agent",
+        "dossier en cours"
+    ]
+    
+    return any(indicator in response_text.lower() for indicator in followup_indicators)
+
+def classify_response_type(response_text: str) -> str:
+    """Classify response type for n8n conditional logic"""
+    if "escalade" in response_text.lower():
+        return "escalation"
+    elif "formation" in response_text.lower():
+        return "training_info"
+    elif "ambassadeur" in response_text.lower():
+        return "ambassador_info"
+    elif "paiement" in response_text.lower():
+        return "payment_info"
+    else:
+        return "general_info"
+
 # Performance-optimized keyword sets for faster lookup
 class KeywordSets:
     def __init__(self):
@@ -678,6 +733,7 @@ async def optimize_rag_decision(request: Request):
         try:
             processing_time = time.time() - start_time
             
+            # Enhanced response for n8n integration
             response_data = {
                 "optimized_response": "Réponse optimisée générée avec performance monitoring",
                 "search_query": decision.search_query,
@@ -702,6 +758,15 @@ async def optimize_rag_decision(request: Request):
                     "memory_management_optimized": True,
                     "async_operations_enabled": True,
                     "response_caching_active": True
+                },
+                # Métadonnées spécifiques pour n8n
+                "n8n_metadata": {
+                    "should_escalate": decision.should_escalate,
+                    "next_action": "Determine next action based on decision",
+                    "workflow_priority": "Determine workflow priority",
+                    "requires_followup": False, # Placeholder, needs actual logic
+                    "bloc_category": "Determine bloc category",
+                    "response_type": "rag_optimized_performance_v2.4"
                 }
             }
             
