@@ -365,7 +365,7 @@ Tu dois OBLIGATOIREMENT:
             search_strategy="hybrid",
             context_needed=context_needed,
             priority_level="high",
-            should_escalate=True,
+            should_escalate=False,
             system_instructions="""CONTEXTE DÉTECTÉ: PAIEMENT FORMATION
 RÈGLE ABSOLUE - FILTRAGE PAIEMENT OBLIGATOIRE:
 
@@ -387,6 +387,7 @@ LOGIQUE ADAPTATIVE:
 ÉTAPE 2 - LOGIQUE CONDITIONNELLE STRICTE :
 - Si DIRECT ET > 7 jours → BLOC J IMMÉDIAT (paiement direct délai dépassé)
 - BLOC J = "⏰ **Paiement direct : délai dépassé** ⏰" avec escalade admin
+- Si DIRECT ET ≤ 7 jours → Réponse normale : "On est encore dans les délais (7 jours max)"
 - Si CPF ET > 45 jours → OBLIGATOIRE : Poser d'abord la question du Bloc F1
 - Bloc F1 = "Question CPF Bloqué. Juste avant que je transmette ta demande 🙏
 Est-ce que tu as déjà été informé par l'équipe que ton dossier CPF faisait partie des quelques cas bloqués par la Caisse des Dépôts ?
@@ -396,13 +397,14 @@ Sinon, je fais remonter ta demande à notre équipe pour vérification ✅"
 - Si réponse NON → Escalade admin car délai anormal
 
 ÉTAPE 3 - DÉLAIS DE RÉFÉRENCE :
-- DIRECT: ≤7j normal, >7j BLOC J IMMÉDIAT (escalade admin)
+- DIRECT: ≤7j normal (réponse normale), >7j BLOC J IMMÉDIAT (escalade admin)
 - CPF: ≤45j normal, >45j → QUESTION F1 OBLIGATOIRE puis F2 si bloqué, si non bloqué ESCALADE ADMIN.
 - OPCO: ≤2 mois normal, >2 mois ESCALADE
 
 INTERDICTION ABSOLUE : Passer directement au Bloc F2 sans poser la question F1.
 OBLIGATION : Toujours demander "Est-ce que ton CPF est bloqué ?" avant F2.
 OBLIGATION : Si financement direct ET > 7 jours → BLOC J immédiat.
+OBLIGATION : Si financement direct ET ≤ 7 jours → Réponse normale (pas d'escalade).
 
 Reproduire les blocs EXACTEMENT avec tous les emojis.
 JAMAIS de salutations répétées - questions directes."""
