@@ -7,3 +7,6 @@ pydantic==2.11.7
 transformers
 openai>=1.0.0
 faiss-cpu --only-binary=all
+supabase==2.3.4
+postgrest==0.13.2
+python-dotenv==1.0.0

@@ -13,6 +13,11 @@ from cachetools import TTLCache
 import time
 from collections import defaultdict
 import weakref
+from dotenv import load_dotenv
+from supabase import create_client, Client
+
+# Load environment variables
+load_dotenv()
 
 # Performance-optimized logging configuration
 logging.basicConfig(
@@ -40,6 +45,21 @@ if openai_key:
     logger.info("OpenAI API Key configured")
 else:
     logger.warning("OpenAI API Key not found - some features may not work")
+
+# Supabase configuration
+supabase_url = os.getenv("SUPABASE_URL")
+supabase_key = os.getenv("SUPABASE_KEY")
+
+if supabase_url and supabase_key:
+    try:
+        supabase: Client = create_client(supabase_url, supabase_key)
+        logger.info("Supabase client initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize Supabase client: {str(e)}")
+        supabase = None
+else:
+    logger.warning("Supabase credentials not found - database features will not work")
+    supabase = None
 
 # Performance-optimized memory store with TTL and size limits
 class OptimizedMemoryStore:
@@ -159,6 +179,104 @@ KEYWORD_SETS = KeywordSets()
 # Response cache for frequently asked questions
 response_cache = TTLCache(maxsize=500, ttl=1800)  # 30 minutes TTL
 
+class SupabaseManager:
+    """Gestionnaire optimisé pour les interactions avec Supabase"""
+    
+    def __init__(self, client: Optional[Client] = None):
+        self.client = client
+        self._search_cache = TTLCache(maxsize=100, ttl=900)  # 15 minutes cache
+    
+    async def search_blocks(self, query: str, context_type: str = None, limit: int = 5) -> List[Dict]:
+        """Recherche des blocs dans Supabase avec cache"""
+        if not self.client:
+            logger.warning("Supabase client not available")
+            return []
+        
+        try:
+            # Cache key based on query and context
+            cache_key = f"{query}_{context_type}_{limit}"
+            if cache_key in self._search_cache:
+                logger.info(f"🚀 CACHE HIT for Supabase search: {query[:30]}...")
+                return self._search_cache[cache_key]
+            
+            logger.info(f"🔍 SUPABASE SEARCH: '{query[:50]}...' | Context: {context_type}")
+            
+            # Build the query
+            query_builder = self.client.table("content_blocks").select("*")
+            
+            # Add context filter if specified
+            if context_type:
+                query_builder = query_builder.eq("context", context_type)
+            
+            # Execute search with text similarity (if available) or simple text search
+            try:
+                # Try semantic search first (if you have vector embeddings)
+                result = query_builder.text_search("content", query).limit(limit).execute()
+            except:
+                # Fallback to simple text search
+                result = query_builder.ilike("content", f"%{query}%").limit(limit).execute()
+            
+            blocks = result.data if result.data else []
+            
+            # Cache the results
+            self._search_cache[cache_key] = blocks
+            
+            logger.info(f"✅ Found {len(blocks)} blocks for query: {query[:30]}...")
+            return blocks
+            
+        except Exception as e:
+            logger.error(f"Error searching Supabase: {str(e)}")
+            return []
+    
+    async def get_block_by_category(self, category: str, context: str = None) -> Optional[Dict]:
+        """Récupère un bloc spécifique par catégorie"""
+        if not self.client:
+            return None
+        
+        try:
+            logger.info(f"🎯 SUPABASE GET BLOCK: Category={category}, Context={context}")
+            
+            query_builder = self.client.table("content_blocks").select("*").eq("category", category)
+            
+            if context:
+                query_builder = query_builder.eq("context", context)
+            
+            result = query_builder.limit(1).execute()
+            
+            if result.data and len(result.data) > 0:
+                logger.info(f"✅ Found block for category: {category}")
+                return result.data[0]
+            else:
+                logger.warning(f"❌ No block found for category: {category}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error getting block by category: {str(e)}")
+            return None
+    
+    async def get_payment_blocks(self) -> List[Dict]:
+        """Récupère tous les blocs liés aux paiements"""
+        if not self.client:
+            return []
+        
+        try:
+            result = self.client.table("content_blocks").select("*").in_("category", [
+                "PAIEMENT", "CPF_BLOQUE", "ESCALADE_ADMIN", "DELAI_PAIEMENT"
+            ]).execute()
+            
+            return result.data if result.data else []
+            
+        except Exception as e:
+            logger.error(f"Error getting payment blocks: {str(e)}")
+            return []
+    
+    def is_available(self) -> bool:
+        """Vérifie si Supabase est disponible"""
+        return self.client is not None
+
+# Initialize Supabase manager
+supabase_manager = SupabaseManager(supabase)
+
 @dataclass
 class SimpleRAGDecision:
     """Structure simplifiée pour les décisions RAG"""
@@ -175,6 +293,7 @@ class OptimizedRAGEngine:
     def __init__(self):
         self.keyword_sets = KEYWORD_SETS
         self._decision_cache = TTLCache(maxsize=200, ttl=600)  # 10 minutes cache
+        self.supabase_manager = supabase_manager
     
     @lru_cache(maxsize=100)
     def _has_keywords(self, message_lower: str, keyword_set: frozenset) -> bool:
@@ -192,6 +311,58 @@ class OptimizedRAGEngine:
             "auto-financé", "autofinancé", "mes fonds", "par mes soins"
         ])
         return any(term in message_lower for term in direct_financing_terms)
+    
+    async def enrich_decision_with_supabase(self, decision: SimpleRAGDecision, message: str) -> SimpleRAGDecision:
+        """Enrichit la décision RAG avec des données Supabase"""
+        if not self.supabase_manager.is_available():
+            logger.warning("Supabase not available - using fallback decision")
+            return decision
+        
+        try:
+            # Recherche des blocs pertinents selon le contexte
+            blocks = []
+            
+            # Recherche spécifique selon le type de contexte
+            if "paiement" in decision.context_needed:
+                blocks = await self.supabase_manager.get_payment_blocks()
+            elif "ambassadeur" in decision.context_needed:
+                blocks = await self.supabase_manager.search_blocks(
+                    decision.search_query, "AMBASSADEUR", limit=3
+                )
+            elif "legal" in decision.context_needed:
+                block = await self.supabase_manager.get_block_by_category("LEGAL", "BLOC LEGAL")
+                if block:
+                    blocks = [block]
+            else:
+                # Recherche générale
+                blocks = await self.supabase_manager.search_blocks(
+                    decision.search_query, limit=5
+                )
+            
+            # Enrichir les instructions système avec les blocs trouvés
+            if blocks:
+                block_contents = []
+                for block in blocks[:3]:  # Limiter à 3 blocs pour éviter la surcharge
+                    block_info = f"BLOC {block.get('category', 'UNKNOWN')}: {block.get('content', '')[:200]}..."
+                    block_contents.append(block_info)
+                
+                enriched_instructions = decision.system_instructions + f"\n\nBLOCS SUPABASE TROUVÉS:\n" + "\n".join(block_contents)
+                
+                # Créer une nouvelle décision enrichie
+                return SimpleRAGDecision(
+                    search_query=decision.search_query,
+                    search_strategy=decision.search_strategy,
+                    context_needed=decision.context_needed + ["supabase_enriched"],
+                    priority_level=decision.priority_level,
+                    should_escalate=decision.should_escalate,
+                    system_instructions=enriched_instructions
+                )
+            
+            return decision
+            
+        except Exception as e:
+            logger.error(f"Error enriching decision with Supabase: {str(e)}")
+            return decision
     
     async def analyze_intent(self, message: str, session_id: str = "default") -> SimpleRAGDecision:
         """Analyse l'intention de manière robuste et optimisée"""
@@ -265,9 +436,12 @@ class OptimizedRAGEngine:
             else:
                 decision = self._create_general_decision(message)
             
-            # Cache the decision
-            self._decision_cache[cache_key] = decision
-            return decision
+            # Enrichir la décision avec Supabase
+            enriched_decision = await self.enrich_decision_with_supabase(decision, message)
+            
+            # Cache the enriched decision
+            self._decision_cache[cache_key] = enriched_decision
+            return enriched_decision
         
         except Exception as e:
             logger.error(f"Erreur dans analyze_intent: {str(e)}")
@@ -785,7 +959,8 @@ async def get_performance_metrics():
                 "keyword_optimization": "Frozenset O(1) lookup",
                 "caching_layers": ["Response Cache", "Decision Cache", "Memory TTL"],
                 "memory_management": "Optimized with size limits and TTL",
-                "error_handling": "Streamlined with performance focus"
+                "error_handling": "Streamlined with performance focus",
+                "supabase_integration": supabase_manager.is_available()
             },
             "performance_improvements": {
                 "keyword_matching": "~90% faster with frozensets",
@@ -797,6 +972,70 @@ async def get_performance_metrics():
     except Exception as e:
         logger.error(f"Erreur performance metrics: {str(e)}")
         return {"error": "Erreur récupération métriques"}
+
+@app.get("/supabase_status")
+async def supabase_status():
+    """Endpoint pour vérifier le statut de la connexion Supabase"""
+    try:
+        if not supabase_manager.is_available():
+            return {
+                "status": "disconnected",
+                "message": "Supabase client not initialized",
+                "config_check": {
+                    "url_configured": bool(os.getenv("SUPABASE_URL")),
+                    "key_configured": bool(os.getenv("SUPABASE_KEY"))
+                }
+            }
+        
+        # Test simple query to check connection
+        try:
+            result = supabase.table("content_blocks").select("count", count="exact").limit(1).execute()
+            return {
+                "status": "connected",
+                "message": "Supabase connection successful",
+                "database_info": {
+                    "total_blocks": result.count if hasattr(result, 'count') else "unknown",
+                    "connection_test": "passed"
+                }
+            }
+        except Exception as e:
+            return {
+                "status": "connection_error",
+                "message": f"Connection failed: {str(e)}",
+                "error_type": type(e).__name__
+            }
+            
+    except Exception as e:
+        logger.error(f"Erreur supabase status: {str(e)}")
+        return {"error": "Erreur vérification statut Supabase"}
+
+@app.post("/test_supabase_search")
+async def test_supabase_search(request: Request):
+    """Endpoint de test pour la recherche Supabase"""
+    try:
+        body = await request.json()
+        query = body.get("query", "test")
+        context_type = body.get("context_type", None)
+        
+        if not supabase_manager.is_available():
+            return {
+                "error": "Supabase not available",
+                "status": "disconnected"
+            }
+        
+        blocks = await supabase_manager.search_blocks(query, context_type, limit=3)
+        
+        return {
+            "query": query,
+            "context_type": context_type,
+            "results_count": len(blocks),
+            "blocks": blocks,
+            "status": "success"
+        }
+        
+    except Exception as e:
+        logger.error(f"Erreur test supabase search: {str(e)}")
+        return {"error": f"Erreur test recherche: {str(e)}"}
 
 if __name__ == "__main__":
     import uvicorn
