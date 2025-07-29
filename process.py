@@ -101,13 +101,24 @@ class KeywordSets:
             "virement", "argent", "retard", "délai", "attends",
             "finance", "financement", "payé pour", "rien reçu",
             "je vais être payé quand", "délai paiement",
-            # Termes pour financement direct/personnel
+            # Termes pour financement direct/personnel - RENFORCÉS
             "payé tout seul", "financé tout seul", "financé en direct",
             "paiement direct", "financement direct", "j'ai payé", 
             "j'ai financé", "payé par moi", "financé par moi",
             "sans organisme", "financement personnel", "paiement personnel",
             "auto-financé", "autofinancé", "mes fonds", "mes propres fonds",
-            "direct", "tout seul", "par moi-même", "par mes soins"
+            "direct", "tout seul", "par moi-même", "par mes soins",
+            # NOUVEAUX TERMES AJOUTÉS
+            "j'ai payé toute seule", "j'ai payé moi", "c'est moi qui est financé",
+            "financement moi même", "financement en direct", "paiement direct",
+            "j'ai financé toute seule", "j'ai financé moi", "c'est moi qui ai payé",
+            "financement par mes soins", "paiement par mes soins", "mes propres moyens",
+            "avec mes propres fonds", "de ma poche", "de mes économies",
+            "financement individuel", "paiement individuel", "auto-financement",
+            "financement privé", "paiement privé", "financement personnel",
+            "j'ai tout payé", "j'ai tout financé", "c'est moi qui finance",
+            "financement direct", "paiement en direct", "financement cash",
+            "paiement cash", "financement comptant", "paiement comptant"
         ])
         
         self.ambassador_keywords = frozenset([
@@ -183,13 +194,24 @@ class OptimizedRAGEngine:
     
     @lru_cache(maxsize=50)
     def _detect_direct_financing(self, message_lower: str) -> bool:
-        """Détecte spécifiquement les termes de financement direct/personnel"""
+        """Détecte spécifiquement les termes de financement direct/personnel - RENFORCÉ"""
         direct_financing_terms = frozenset([
             "payé tout seul", "financé tout seul", "financé en direct",
             "paiement direct", "financement direct", "j'ai payé", 
             "j'ai financé", "payé par moi", "financé par moi",
             "sans organisme", "financement personnel", "paiement personnel",
-            "auto-financé", "autofinancé", "mes fonds", "par mes soins"
+            "auto-financé", "autofinancé", "mes fonds", "par mes soins",
+            # NOUVEAUX TERMES AJOUTÉS
+            "j'ai payé toute seule", "j'ai payé moi", "c'est moi qui est financé",
+            "financement moi même", "financement en direct", "paiement direct",
+            "j'ai financé toute seule", "j'ai financé moi", "c'est moi qui ai payé",
+            "financement par mes soins", "paiement par mes soins", "mes propres moyens",
+            "avec mes propres fonds", "de ma poche", "de mes économies",
+            "financement individuel", "paiement individuel", "auto-financement",
+            "financement privé", "paiement privé", "financement personnel",
+            "j'ai tout payé", "j'ai tout financé", "c'est moi qui finance",
+            "financement direct", "paiement en direct", "financement cash",
+            "paiement cash", "financement comptant", "paiement comptant"
         ])
         return any(term in message_lower for term in direct_financing_terms)
     
@@ -350,6 +372,7 @@ RÈGLE ABSOLUE - FILTRAGE PAIEMENT OBLIGATOIRE:
 RECONNAISSANCE FINANCEMENT AMÉLIORÉE:
 - AUTO-DÉTECTION: "payé tout seul", "financé en direct", "j'ai financé", "paiement direct"
 - AUTO-DÉTECTION: "sans organisme", "par mes soins", "auto-financé", "financement personnel"
+- AUTO-DÉTECTION: "j'ai payé toute seule", "c'est moi qui est financé", "financement moi même"
 - Ces termes = FINANCEMENT DIRECT confirmé automatiquement
 
 ÉTAPE 1 - QUESTIONS DE FILTRAGE INTELLIGENTES :
@@ -362,7 +385,8 @@ LOGIQUE ADAPTATIVE:
 - Financement non précisé → Questions complètes de filtrage
 
 ÉTAPE 2 - LOGIQUE CONDITIONNELLE STRICTE :
-- Si DIRECT ET > 7 jours → ESCALADE IMMÉDIATE (délai dépassé)
+- Si DIRECT ET > 7 jours → BLOC J IMMÉDIAT (paiement direct délai dépassé)
+- BLOC J = "⏰ **Paiement direct : délai dépassé** ⏰" avec escalade admin
 - Si CPF ET > 45 jours → OBLIGATOIRE : Poser d'abord la question du Bloc F1
 - Bloc F1 = "Question CPF Bloqué. Juste avant que je transmette ta demande 🙏
 Est-ce que tu as déjà été informé par l'équipe que ton dossier CPF faisait partie des quelques cas bloqués par la Caisse des Dépôts ?
@@ -372,12 +396,13 @@ Sinon, je fais remonter ta demande à notre équipe pour vérification ✅"
 - Si réponse NON → Escalade admin car délai anormal
 
 ÉTAPE 3 - DÉLAIS DE RÉFÉRENCE :
-- DIRECT: ≤7j normal, >7j ESCALADE IMMÉDIATE
+- DIRECT: ≤7j normal, >7j BLOC J IMMÉDIAT (escalade admin)
 - CPF: ≤45j normal, >45j → QUESTION F1 OBLIGATOIRE puis F2 si bloqué, si non bloqué ESCALADE ADMIN.
 - OPCO: ≤2 mois normal, >2 mois ESCALADE
 
 INTERDICTION ABSOLUE : Passer directement au Bloc F2 sans poser la question F1.
 OBLIGATION : Toujours demander "Est-ce que ton CPF est bloqué ?" avant F2.
+OBLIGATION : Si financement direct ET > 7 jours → BLOC J immédiat.
 
 Reproduire les blocs EXACTEMENT avec tous les emojis.
 JAMAIS de salutations répétées - questions directes."""
@@ -430,13 +455,17 @@ Tu dois OBLIGATOIREMENT:
             priority_level="medium",
             should_escalate=False,
             system_instructions="""CONTEXTE DÉTECTÉ: FORMATION
-Tu dois OBLIGATOIREMENT:
-1. Si question CPF → Bloc C (plus de CPF disponible)
-2. Chercher les informations formations dans Supabase
-3. Identifier le profil (pro, particulier, entreprise)
-4. Orienter vers les bons financements (OPCO, entreprise)
-5. Proposer contact humain si besoin (Bloc G)
-6. JAMAIS de salutations répétées - contenu direct"""
+RÈGLE ABSOLUE - PRIORITÉ BLOC K :
+1. OBLIGATOIRE : Commencer TOUJOURS par le BLOC K (formations disponibles)
+2. BLOC K = "🎓 **+100 formations disponibles chez JAK Company !** 🎓"
+3. Reproduire EXACTEMENT le BLOC K avec tous les emojis et spécialités
+4. APRÈS le BLOC K, si question CPF → Bloc C (plus de CPF disponible)
+5. Chercher les informations formations dans Supabase
+6. Identifier le profil (pro, particulier, entreprise)
+7. Orienter vers les bons financements (OPCO, entreprise)
+8. Proposer contact humain si besoin (Bloc G)
+9. JAMAIS de salutations répétées - contenu direct
+10. TOUJOURS commencer par présenter les formations disponibles (BLOC K)"""
         )
     
     def _create_human_decision(self) -> SimpleRAGDecision:
