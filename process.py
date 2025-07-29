@@ -100,7 +100,14 @@ class KeywordSets:
             "pas été payé", "pas payé", "paiement", "cpf", "opco", 
             "virement", "argent", "retard", "délai", "attends",
             "finance", "financement", "payé pour", "rien reçu",
-            "je vais être payé quand", "délai paiement"
+            "je vais être payé quand", "délai paiement",
+            # Nouveaux mots-clés pour financement direct/personnel
+            "financé tout seul", "payé tout seul", "j'ai payé", "j'ai financé",
+            "financement direct", "paiement direct", "financé en direct", 
+            "payé en direct", "financé par mes soins", "payé par mes soins",
+            "financé moi-même", "payé moi-même", "sans organisme", "sans cpf",
+            "sans opco", "financement personnel", "paiement personnel",
+            "mes propres fonds", "de ma poche", "auto-financé"
         ])
         
         self.ambassador_keywords = frozenset([
@@ -144,6 +151,17 @@ class KeywordSets:
         self.aggressive_keywords = frozenset([
             "merde", "putain", "con", "salaud", "nul", "arnaque",
             "escroquerie", "voleur", "marre", "insulte"
+        ])
+        
+        # Nouveau set spécifique pour financement direct
+        self.direct_payment_keywords = frozenset([
+            "financé tout seul", "payé tout seul", "j'ai payé", "j'ai financé",
+            "financement direct", "paiement direct", "financé en direct", 
+            "payé en direct", "financé par mes soins", "payé par mes soins",
+            "financé moi-même", "payé moi-même", "sans organisme", "sans cpf",
+            "sans opco", "financement personnel", "paiement personnel",
+            "mes propres fonds", "de ma poche", "auto-financé", "tout seul",
+            "moi même", "moi-même", "par moi", "directement", "perso"
         ])
 
 # Initialize keyword sets globally for better performance
@@ -308,13 +326,36 @@ Tu dois OBLIGATOIREMENT:
         )
     
     def _create_payment_decision(self, message: str) -> SimpleRAGDecision:
+        message_lower = message.lower().strip()
+        
+        # Détection améliorée du type de financement
+        is_direct_payment = self._has_keywords(message_lower, self.keyword_sets.direct_payment_keywords)
+        is_cpf = "cpf" in message_lower
+        is_opco = "opco" in message_lower
+        
+        # Adaptation de la recherche selon le type détecté
+        if is_direct_payment:
+            search_query = f"paiement direct formation délai escalade {message}"
+            context_needed = ["paiement", "direct", "délai", "escalade"]
+        elif is_cpf:
+            search_query = f"paiement cpf formation délai bloqué {message}"
+            context_needed = ["paiement", "cpf", "délai", "bloqué"]
+        elif is_opco:
+            search_query = f"paiement opco formation délai {message}"
+            context_needed = ["paiement", "opco", "délai"]
+        else:
+            search_query = f"paiement formation délai cpf opco {message}"
+            context_needed = ["paiement", "cpf", "opco", "financement", "délai"]
+        
         return SimpleRAGDecision(
-            search_query=f"paiement formation délai cpf opco {message}",
+            search_query=search_query,
             search_strategy="hybrid",
-            context_needed=["paiement", "cpf", "opco", "financement", "délai"],
+            context_needed=context_needed,
             priority_level="high",
             should_escalate=True,
-            system_instructions="""CONTEXTE DÉTECTÉ: PAIEMENT FORMATION
+            system_instructions=f"""CONTEXTE DÉTECTÉ: PAIEMENT FORMATION
+TYPE DE FINANCEMENT DÉTECTÉ: {'DIRECT' if is_direct_payment else 'CPF' if is_cpf else 'OPCO' if is_opco else 'NON SPÉCIFIÉ'}
+
 RÈGLE ABSOLUE - FILTRAGE PAIEMENT OBLIGATOIRE:
 
 ÉTAPE 1 - QUESTIONS DE FILTRAGE OBLIGATOIRES :
@@ -322,6 +363,7 @@ RÈGLE ABSOLUE - FILTRAGE PAIEMENT OBLIGATOIRE:
 2. "Environ quand elle s'est terminée ?"
 
 ÉTAPE 2 - LOGIQUE CONDITIONNELLE STRICTE :
+- Si FINANCEMENT DIRECT détecté ET délai > 7 jours → ESCALADE IMMÉDIATE (délai dépassé)
 - Si CPF ET > 45 jours → OBLIGATOIRE : Poser d'abord la question du Bloc F1
 - Bloc F1 = "Question CPF Bloqué. Juste avant que je transmette ta demande 🙏
 Est-ce que tu as déjà été informé par l'équipe que ton dossier CPF faisait partie des quelques cas bloqués par la Caisse des Dépôts ?
@@ -331,9 +373,12 @@ Sinon, je fais remonter ta demande à notre équipe pour vérification ✅"
 - Si réponse NON → Escalade admin car délai anormal
 
 ÉTAPE 3 - DÉLAIS DE RÉFÉRENCE :
-- Direct: ≤7j normal, >7j ESCALADE
+- Direct: ≤7j normal, >7j ESCALADE IMMÉDIATE
 - CPF: ≤45j normal, >45j → QUESTION F1 OBLIGATOIRE puis F2 si bloqué, si non bloqué ESCALADE ADMIN.
 - OPCO: ≤2 mois normal, >2 mois ESCALADE
+
+AMÉLIORATION FINANCEMENT DIRECT:
+Si les mots-clés "financé tout seul", "payé tout seul", "j'ai financé", "financement direct", "paiement direct", etc. sont détectés, considérer comme FINANCEMENT DIRECT confirmé et appliquer directement les règles de délai de 7 jours.
 
 INTERDICTION ABSOLUE : Passer directement au Bloc F2 sans poser la question F1.
 OBLIGATION : Toujours demander "Est-ce que ton CPF est bloqué ?" avant F2.

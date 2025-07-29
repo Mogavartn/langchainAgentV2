@@ -6,6 +6,8 @@ This is a high-performance AI Agent for WhatsApp integration with n8n, featuring
 
 ## ✅ Recent Updates
 
+- **Enhanced Payment Detection**: Improved recognition of direct/personal financing with 15+ new keywords ("financé tout seul", "j'ai payé", "financement direct", etc.)
+- **Smart Payment Logic**: Added intelligent detection logic that adapts responses based on financing type (Direct/CPF/OPCO)
 - **Tiktoken Conflict Resolution**: Removed unused langchain dependencies that were causing deployment conflicts with tiktoken version requirements
 - **Streamlined Dependencies**: Cleaned up requirements.txt to include only actually used packages
 - **Deployment Optimized**: Ready for seamless deployment on Render, Heroku, and other platforms
