@@ -1,0 +1,16 @@
+# Render-optimized requirements - minimal dependencies to avoid build issues
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.4.2
+redis==5.0.1
+cachetools==5.3.2
+requests==2.31.0
+python-multipart==0.0.6
+httpx==0.25.2
+
+# Optional: Add these back if needed after basic deployment works
+# langchain==0.0.352
+# langchain-openai==0.0.2
+# langchain-community==0.0.5
+# tiktoken==0.5.2
+# asyncio-throttle==1.0.2

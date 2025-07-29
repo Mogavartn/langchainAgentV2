@@ -14,6 +14,21 @@ import time
 from collections import defaultdict
 import weakref
 
+# Handle optional dependencies gracefully
+try:
+    import tiktoken
+    TIKTOKEN_AVAILABLE = True
+except ImportError:
+    TIKTOKEN_AVAILABLE = False
+    logger.warning("tiktoken not available - some features may be limited")
+
+try:
+    from langchain import LLMChain
+    LANGCHAIN_AVAILABLE = True
+except ImportError:
+    LANGCHAIN_AVAILABLE = False
+    logger.warning("langchain not available - using fallback responses")
+
 # Performance-optimized logging configuration
 logging.basicConfig(
     level=logging.INFO,
@@ -760,15 +775,28 @@ async def get_performance_metrics():
 if __name__ == "__main__":
     import uvicorn
     try:
-        logger.info("🚀 Démarrage JAK Company RAG API Performance-Optimized v2.4")
+        # Get port from environment (Render sets this automatically)
+        port = int(os.getenv("PORT", 8000))
+        host = os.getenv("HOST", "0.0.0.0")
+        
+        logger.info(f"🚀 Démarrage JAK Company RAG API Performance-Optimized v2.4 on {host}:{port}")
+        
+        # Enhanced configuration for production deployment
         uvicorn.run(
             app, 
-            host="0.0.0.0", 
-            port=int(os.getenv("PORT", 8000)),
+            host=host, 
+            port=port,
             workers=1,  # Single worker for memory consistency
             loop="asyncio",  # Ensure asyncio loop
-            access_log=False  # Disable access logs for better performance
+            access_log=not bool(os.getenv("DISABLE_ACCESS_LOG", False)),
+            log_level="info",
+            reload=False,  # Disable reload in production
+            timeout_keep_alive=30,  # Keep connections alive longer
+            limit_concurrency=100,  # Limit concurrent connections
+            limit_max_requests=1000  # Restart worker after 1000 requests
         )
     except Exception as e:
         logger.error(f"Erreur démarrage serveur: {str(e)}")
         print(f"ERREUR CRITIQUE: {str(e)}")
+        # Exit with error code for proper container restart
+        exit(1)
