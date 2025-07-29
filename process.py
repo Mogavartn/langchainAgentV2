@@ -154,6 +154,13 @@ class KeywordSets:
             "informatique", "langues", "anglais", "excel"
         ])
         
+        # NOUVEAUX MOTS-CLÉS POUR DÉTECTION ESCALADE FORMATION
+        self.formation_escalade_keywords = frozenset([
+            "oui", "ok", "d'accord", "parfait", "super", "ça m'intéresse",
+            "je veux bien", "c'est possible", "comment faire", "plus d'infos",
+            "mettre en relation", "équipe commerciale", "contact"
+        ])
+        
         self.human_keywords = frozenset([
             "parler humain", "contact humain", "équipe", "quelqu'un",
             "agent", "conseiller", "je veux parler"
@@ -292,6 +299,34 @@ class OptimizedRAGEngine:
         ])
         return any(term in message_lower for term in agent_patterns)
     
+    def _is_formation_escalade_request(self, message_lower: str, session_id: str) -> bool:
+        """Détecte si c'est une demande d'escalade après présentation des formations"""
+        try:
+            # Vérifier si le message contient des mots-clés d'escalade
+            has_escalade_keywords = any(
+                keyword in message_lower 
+                for keyword in self.keyword_sets.formation_escalade_keywords
+            )
+            
+            if not has_escalade_keywords:
+                return False
+            
+            # Vérifier le contexte de conversation
+            conversation_context = memory_store.get(session_id)
+            
+            # Chercher si le BLOC K a été présenté récemment
+            bloc_k_presented = False
+            for msg in conversation_context[-3:]:  # Derniers 3 messages
+                if "BLOC K" in str(msg.get("content", "")) or "formations disponibles" in str(msg.get("content", "")):
+                    bloc_k_presented = True
+                    break
+            
+            return bloc_k_presented
+            
+        except Exception as e:
+            logger.error(f"Erreur détection escalade formation: {str(e)}")
+            return False
+    
     async def analyze_intent(self, message: str, session_id: str = "default") -> SimpleRAGDecision:
         """Analyse l'intention de manière robuste et optimisée"""
         
@@ -348,6 +383,10 @@ class OptimizedRAGEngine:
             # Contact detection
             elif self._has_keywords(message_lower, self.keyword_sets.contact_keywords):
                 decision = self._create_contact_decision()
+            
+            # Vérifier d'abord si c'est une demande d'escalade après présentation formations
+            elif self._is_formation_escalade_request(message_lower, session_id):
+                decision = self._create_formation_escalade_decision()
             
             # Formation detection
             elif self._has_keywords(message_lower, self.keyword_sets.formation_keywords):
@@ -565,6 +604,34 @@ RÈGLE ABSOLUE - PRIORITÉ BLOC K :
 8. Proposer contact humain si besoin (Bloc G)
 9. JAMAIS de salutations répétées - contenu direct
 10. TOUJOURS commencer par présenter les formations disponibles (BLOC K)"""
+        )
+    
+    def _create_formation_escalade_decision(self) -> SimpleRAGDecision:
+        return SimpleRAGDecision(
+            search_query="escalade formation équipe commerciale mise en relation",
+            search_strategy="semantic",
+            context_needed=["escalade", "formation", "équipe", "commercial"],
+            priority_level="high",
+            should_escalate=True,
+            system_instructions="""CONTEXTE DÉTECTÉ: ESCALADE FORMATION (BLOC 6.2)
+UTILISATION: Demande d'escalade après présentation des formations
+
+Tu dois OBLIGATOIREMENT:
+1. Appliquer le BLOC 6.2 immédiatement
+2. Reproduire EXACTEMENT ce message:
+🔁 ESCALADE AGENT CO
+🕐 Notre équipe traite les demandes du lundi au vendredi, de 9h à 17h (hors pause déjeuner).
+Nous te répondrons dès que possible.
+
+3. Identifier le type de demande:
+   - Demande de formation spécifique → Escalade CO
+   - Besoin d'accompagnement → Escalade CO
+   - Mise en relation → Escalade CO
+
+4. Maintenir le ton professionnel et rassurant
+5. JAMAIS de salutations répétées - escalade directe
+6. IMPORTANT: Cette escalade doit être visible dans la BDD pour le suivi
+7. NE PAS répéter la liste des formations - aller directement à l'escalade"""
         )
     
     def _create_human_decision(self) -> SimpleRAGDecision:
