@@ -69,7 +69,7 @@ print_status "Dependencies installed successfully"
 
 # Verify critical packages
 print_header "Verifying critical package installations..."
-critical_packages=("fastapi" "uvicorn" "langchain" "cachetools" "pydantic")
+critical_packages=("fastapi" "uvicorn" "openai" "cachetools" "pydantic")
 
 for package in "${critical_packages[@]}"; do
     if python3 -c "import $package" 2>/dev/null; then

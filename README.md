@@ -1,41 +1,43 @@
-# JAK Company RAG API v2.4 - Performance Optimized
+# JAK Company RAG API - Performance Optimized
 
-## 🚀 LangChain WhatsApp AI Agent - Performance Optimized
+## 🚀 High-Performance AI Agent - Tiktoken-Free Solution
 
-This is a high-performance LangChain-based AI Agent for WhatsApp integration with n8n, featuring comprehensive performance optimizations and advanced caching mechanisms.
+This is a high-performance AI Agent for WhatsApp integration with n8n, featuring comprehensive performance optimizations and advanced caching mechanisms. **Now optimized for deployment without tiktoken dependency conflicts.**
 
-## ⚡ Performance Improvements
+## ✅ Recent Updates
 
-### 🎯 Key Optimizations Implemented
+- **Tiktoken Conflict Resolution**: Removed unused langchain dependencies that were causing deployment conflicts with tiktoken version requirements
+- **Streamlined Dependencies**: Cleaned up requirements.txt to include only actually used packages
+- **Deployment Optimized**: Ready for seamless deployment on Render, Heroku, and other platforms
 
-- **75% faster response times** through intelligent multi-layer caching
-- **90% faster keyword matching** with frozenset-based O(1) lookup
-- **60% memory usage reduction** with TTL-based automatic cleanup
-- **Enhanced concurrency** through full async/await implementation
-- **Streamlined error handling** with performance-focused patterns
-- **Real-time performance monitoring** with detailed metrics
+## 🔧 Key Features
 
-### 📊 Technical Improvements
+- ⚡ **Ultra-Fast Response Times**: Optimized RAG engine with O(1) keyword lookup
+- 🧠 **Intelligent Caching**: TTL-based caching for frequently asked questions
+- 💾 **Memory Management**: Optimized memory store with automatic cleanup
+- 🚀 **Async Operations**: Full async support for better concurrency
+- 🛡️ **Error Handling**: Comprehensive error handling and recovery
+- 📊 **Performance Monitoring**: Built-in performance metrics and monitoring
+- 🔍 **Smart Intent Analysis**: Advanced keyword-based intent detection
+- ⏱️ **Session Management**: TTL-based session management with automatic cleanup
 
-1. **Memory Management**
-   - TTL-based cache with automatic cleanup (1-hour sessions)
-   - Size limits (1000 max sessions, 10 messages per session)
-   - Optimized memory utilization tracking
+## 📦 Dependencies
 
-2. **Keyword Processing**
-   - Frozenset-based keyword matching (O(1) complexity)
-   - LRU caching for repeated keyword lookups
-   - Optimized intent analysis with decision caching
+The application now uses a minimal set of dependencies:
 
-3. **Async Operations**
-   - Full async/await pattern implementation
-   - Non-blocking I/O operations
-   - Enhanced concurrent request handling
+```
+fastapi==0.104.1          # Web framework
+uvicorn[standard]==0.24.0  # ASGI server
+redis==5.0.1              # Caching and session storage
+asyncio-throttle==1.0.2   # Rate limiting
+cachetools==5.3.2         # In-memory caching
+pydantic==2.11.7          # Data validation
+transformers              # NLP processing
+openai>=1.0.0            # OpenAI API client
+faiss-cpu --only-binary=all # Vector similarity search
+```
 
-4. **Caching System**
-   - Response cache (30-minute TTL)
-   - Decision cache (10-minute TTL)
-   - Memory cache with automatic expiration
+**Note**: Langchain and tiktoken dependencies have been removed to resolve deployment conflicts while maintaining full functionality.
 
 ## 🛠️ Quick Start
 
