@@ -161,6 +161,15 @@ class KeywordSets:
             "mettre en relation", "équipe commerciale", "contact"
         ])
         
+        # NOUVEAUX MOTS-CLÉS POUR BLOC M (CONFIRMATION ESCALADE FORMATION)
+        self.formation_confirmation_keywords = frozenset([
+            "oui", "ok", "d'accord", "parfait", "super", "ça m'intéresse",
+            "je veux bien", "c'est possible", "comment faire", "plus d'infos",
+            "mettre en relation", "équipe commerciale", "contact", "recontacte",
+            "recontactez", "recontactez-moi", "recontacte-moi", "appelez-moi",
+            "appellez-moi", "appel", "téléphone", "téléphoner"
+        ])
+        
         self.human_keywords = frozenset([
             "parler humain", "contact humain", "équipe", "quelqu'un",
             "agent", "conseiller", "je veux parler"
@@ -283,6 +292,18 @@ class OptimizedRAGEngine:
         return any(term in message_lower for term in direct_financing_terms)
     
     @lru_cache(maxsize=50)
+    def _detect_opco_financing(self, message_lower: str) -> bool:
+        """Détecte spécifiquement les termes de financement OPCO"""
+        opco_financing_terms = frozenset([
+            "opco", "opérateur de compétences", "opérateur compétences",
+            "financement opco", "paiement opco", "financé par opco",
+            "payé par opco", "opco finance", "opco paie",
+            "organisme paritaire", "paritaire", "fonds formation",
+            "financement paritaire", "paiement paritaire"
+        ])
+        return any(term in message_lower for term in opco_financing_terms)
+    
+    @lru_cache(maxsize=50)
     def _detect_agent_commercial_pattern(self, message_lower: str) -> bool:
         """Détecte les patterns typiques des agents commerciaux et mise en relation"""
         agent_patterns = frozenset([
@@ -298,6 +319,38 @@ class OptimizedRAGEngine:
             "travailler avec", "collaborer avec", "partenariat"
         ])
         return any(term in message_lower for term in agent_patterns)
+    
+    @lru_cache(maxsize=50)
+    def _extract_time_info(self, message_lower: str) -> dict:
+        """Extrait les informations de temps et de financement du message"""
+        import re
+        
+        # Détection des délais
+        time_patterns = {
+            'days': r'(\d+)\s*(jour|jours|j)',
+            'months': r'(\d+)\s*(mois|moi)',
+            'weeks': r'(\d+)\s*(semaine|semaines|sem)'
+        }
+        
+        time_info = {}
+        for time_type, pattern in time_patterns.items():
+            match = re.search(pattern, message_lower)
+            if match:
+                time_info[time_type] = int(match.group(1))
+        
+        # Détection du type de financement
+        financing_type = "unknown"
+        if self._detect_direct_financing(message_lower):
+            financing_type = "direct"
+        elif self._detect_opco_financing(message_lower):
+            financing_type = "opco"
+        elif "cpf" in message_lower:
+            financing_type = "cpf"
+        
+        return {
+            'time_info': time_info,
+            'financing_type': financing_type
+        }
     
     def _is_formation_escalade_request(self, message_lower: str, session_id: str) -> bool:
         """Détecte si c'est une demande d'escalade après présentation des formations"""
@@ -325,6 +378,34 @@ class OptimizedRAGEngine:
             
         except Exception as e:
             logger.error(f"Erreur détection escalade formation: {str(e)}")
+            return False
+    
+    def _is_formation_confirmation_request(self, message_lower: str, session_id: str) -> bool:
+        """Détecte si c'est une confirmation d'escalade après présentation du BLOC M"""
+        try:
+            # Vérifier si le message contient des mots-clés de confirmation
+            has_confirmation_keywords = any(
+                keyword in message_lower 
+                for keyword in self.keyword_sets.formation_confirmation_keywords
+            )
+            
+            if not has_confirmation_keywords:
+                return False
+            
+            # Vérifier le contexte de conversation
+            conversation_context = memory_store.get(session_id)
+            
+            # Chercher si le BLOC M a été présenté récemment
+            bloc_m_presented = False
+            for msg in conversation_context[-3:]:  # Derniers 3 messages
+                if "BLOC M" in str(msg.get("content", "")) or "équipe commerciale" in str(msg.get("content", "")) or "recontacte" in str(msg.get("content", "")):
+                    bloc_m_presented = True
+                    break
+            
+            return bloc_m_presented
+            
+        except Exception as e:
+            logger.error(f"Erreur détection confirmation formation: {str(e)}")
             return False
     
     async def analyze_intent(self, message: str, session_id: str = "default") -> SimpleRAGDecision:
@@ -371,7 +452,18 @@ class OptimizedRAGEngine:
             
             # Payment detection (high priority)
             elif self._has_keywords(message_lower, self.keyword_sets.payment_keywords):
-                decision = self._create_payment_decision(message)
+                # Extraire les informations de temps et financement
+                time_financing_info = self._extract_time_info(message_lower)
+                
+                # Appliquer la logique spécifique selon le type de financement et délai
+                if time_financing_info['financing_type'] == 'direct' and time_financing_info['time_info'].get('days', 0) > 7:
+                    decision = self._create_payment_direct_delayed_decision()
+                elif time_financing_info['financing_type'] == 'opco' and time_financing_info['time_info'].get('months', 0) > 2:
+                    decision = self._create_escalade_admin_decision()
+                elif time_financing_info['financing_type'] == 'cpf' and time_financing_info['time_info'].get('days', 0) > 45:
+                    decision = self._create_escalade_admin_decision()
+                else:
+                    decision = self._create_payment_decision(message)
             
             # Ambassador detection
             elif self._has_keywords(message_lower, self.keyword_sets.ambassador_keywords):
@@ -384,7 +476,11 @@ class OptimizedRAGEngine:
             elif self._has_keywords(message_lower, self.keyword_sets.contact_keywords):
                 decision = self._create_contact_decision()
             
-            # Vérifier d'abord si c'est une demande d'escalade après présentation formations
+            # Vérifier d'abord si c'est une confirmation d'escalade après présentation du BLOC M
+            elif self._is_formation_confirmation_request(message_lower, session_id):
+                decision = self._create_formation_confirmation_decision()
+            
+            # Vérifier ensuite si c'est une demande d'escalade après présentation formations
             elif self._is_formation_escalade_request(message_lower, session_id):
                 decision = self._create_formation_escalade_decision()
             
@@ -482,11 +578,15 @@ Tu dois OBLIGATOIREMENT:
     def _create_payment_decision(self, message: str) -> SimpleRAGDecision:
         message_lower = message.lower()
         direct_financing_detected = self._detect_direct_financing(message_lower)
+        opco_financing_detected = self._detect_opco_financing(message_lower)
         
         # Adapter la requête et le contexte selon le type de financement détecté
         if direct_financing_detected:
             search_query = f"paiement formation délai direct financement personnel {message}"
             context_needed = ["paiement", "financement_direct", "délai", "escalade"]
+        elif opco_financing_detected:
+            search_query = f"paiement formation délai opco financement paritaire {message}"
+            context_needed = ["paiement", "opco", "financement_paritaire", "délai"]
         else:
             search_query = f"paiement formation délai cpf opco {message}"
             context_needed = ["paiement", "cpf", "opco", "financement", "délai"]
@@ -501,24 +601,29 @@ Tu dois OBLIGATOIREMENT:
 RÈGLE ABSOLUE - FILTRAGE PAIEMENT OBLIGATOIRE:
 
 RECONNAISSANCE FINANCEMENT AMÉLIORÉE:
-- AUTO-DÉTECTION: "payé tout seul", "financé en direct", "j'ai financé", "paiement direct"
+- AUTO-DÉTECTION DIRECT: "payé tout seul", "financé en direct", "j'ai financé", "paiement direct"
+- AUTO-DÉTECTION OPCO: "opco", "opérateur de compétences", "financement opco", "paritaire"
 - AUTO-DÉTECTION: "sans organisme", "par mes soins", "auto-financé", "financement personnel"
 - AUTO-DÉTECTION: "j'ai payé toute seule", "c'est moi qui est financé", "financement moi même"
 - Ces termes = FINANCEMENT DIRECT confirmé automatiquement
 
 ÉTAPE 1 - QUESTIONS DE FILTRAGE INTELLIGENTES :
 - Si FINANCEMENT DIRECT détecté automatiquement → Demander SEULEMENT la date
+- Si FINANCEMENT OPCO détecté automatiquement → Demander SEULEMENT la date
 - Sinon → Demander: 1) "Comment la formation a été financée ?" (CPF, OPCO, direct)
                    2) "Environ quand elle s'est terminée ?"
 
 LOGIQUE ADAPTATIVE:
 - Financement direct détecté → Question directe: "Environ quand la formation s'est-elle terminée ?"
+- Financement OPCO détecté → Question directe: "Environ quand la formation s'est-elle terminée ?"
 - Financement non précisé → Questions complètes de filtrage
 
 ÉTAPE 2 - LOGIQUE CONDITIONNELLE STRICTE :
-- Si DIRECT ET > 7 jours → BLOC J IMMÉDIAT (paiement direct délai dépassé)
-- BLOC J = "⏰ **Paiement direct : délai dépassé** ⏰" avec escalade admin
+- Si DIRECT ET > 7 jours → BLOC L IMMÉDIAT (paiement direct délai dépassé) - CORRIGÉ
+- BLOC L = "⏰ **Paiement direct : délai dépassé** ⏰" avec escalade admin
 - Si DIRECT ET ≤ 7 jours → Réponse normale : "On est encore dans les délais (7 jours max)"
+- Si OPCO ET > 2 mois → ESCALADE ADMIN (BLOC 6.1) - CORRIGÉ
+- Si OPCO ET ≤ 2 mois → Réponse normale : "On est encore dans les délais normaux (2 mois max)"
 - Si CPF ET > 45 jours → OBLIGATOIRE : Poser d'abord la question du Bloc F1
 - Bloc F1 = "Question CPF Bloqué. Juste avant que je transmette ta demande 🙏
 Est-ce que tu as déjà été informé par l'équipe que ton dossier CPF faisait partie des quelques cas bloqués par la Caisse des Dépôts ?
@@ -528,18 +633,20 @@ Sinon, je fais remonter ta demande à notre équipe pour vérification ✅"
 - Si réponse NON → Escalade admin car délai anormal
 
 ÉTAPE 3 - DÉLAIS DE RÉFÉRENCE :
-- DIRECT: ≤7j normal (réponse normale), >7j BLOC J IMMÉDIAT (escalade admin)
+- DIRECT: ≤7j normal (réponse normale), >7j BLOC L IMMÉDIAT (escalade admin) - CORRIGÉ
+- OPCO: ≤2 mois normal (réponse normale), >2 mois ESCALADE ADMIN (BLOC 6.1) - CORRIGÉ
 - CPF: ≤45j normal, >45j → QUESTION F1 OBLIGATOIRE puis F2 si bloqué, si non bloqué ESCALADE ADMIN.
-- OPCO: ≤2 mois normal, >2 mois ESCALADE
 
 INTERDICTION ABSOLUE : Passer directement au Bloc F2 sans poser la question F1.
 OBLIGATION : Toujours demander "Est-ce que ton CPF est bloqué ?" avant F2.
-OBLIGATION : Si financement direct ET > 7 jours → BLOC J immédiat.
+OBLIGATION : Si financement direct ET > 7 jours → BLOC L immédiat (CORRIGÉ).
 OBLIGATION : Si financement direct ET ≤ 7 jours → Réponse normale (pas d'escalade).
+OBLIGATION : Si financement OPCO ET > 2 mois → ESCALADE ADMIN.
+OBLIGATION : Si financement OPCO ET ≤ 2 mois → Réponse normale (pas d'escalade).
 
 DÉTECTION AUTOMATIQUE ESCALADE:
-- Si délai > 7 jours (direct) → BLOC J + ESCALADE ADMIN (BLOC 6.1)
-- Si délai > 2 mois (OPCO) → ESCALADE ADMIN (BLOC 6.1)
+- Si délai > 7 jours (direct) → BLOC L + ESCALADE ADMIN (BLOC 6.1) - CORRIGÉ
+- Si délai > 2 mois (OPCO) → ESCALADE ADMIN (BLOC 6.1) - CORRIGÉ
 - Si délai > 45 jours (CPF) → ESCALADE ADMIN (BLOC 6.1)
 
 Reproduire les blocs EXACTEMENT avec tous les emojis.
@@ -613,8 +720,43 @@ RÈGLE ABSOLUE - PRIORITÉ BLOC K :
             context_needed=["escalade", "formation", "équipe", "commercial"],
             priority_level="high",
             should_escalate=True,
-            system_instructions="""CONTEXTE DÉTECTÉ: ESCALADE FORMATION (BLOC 6.2)
+            system_instructions="""CONTEXTE DÉTECTÉ: ESCALADE FORMATION (BLOC M)
 UTILISATION: Demande d'escalade après présentation des formations
+
+Tu dois OBLIGATOIREMENT:
+1. Appliquer le BLOC M immédiatement
+2. Reproduire EXACTEMENT ce message:
+🎯 **Excellent choix !** 🎯
+C'est noté ! 📝
+Pour le moment, nos formations ne sont plus financées par le CPF. Cependant, nous proposons d'autres dispositifs de financement pour les professionnels, entreprises, auto-entrepreneurs ou salariés.
+**Je fais remonter à l'équipe commerciale** pour qu'elle te recontacte et vous établissiez ensemble
+**la meilleure stratégie pour toi** ! 💼 ✨
+**Ils t'aideront avec :**
+✅ Financement optimal
+✅ Planning adapté
+✅ Accompagnement perso
+**OK pour qu'on te recontacte ?** 📞 😊
+
+3. Identifier le type de demande:
+   - Demande de formation spécifique → BLOC M
+   - Besoin d'accompagnement → BLOC M
+   - Mise en relation → BLOC M
+
+4. Maintenir le ton professionnel et rassurant
+5. JAMAIS de salutations répétées - escalade directe
+6. IMPORTANT: Ce bloc doit être visible dans la BDD pour le suivi
+7. NE PAS répéter la liste des formations - aller directement au BLOC M"""
+        )
+    
+    def _create_formation_confirmation_decision(self) -> SimpleRAGDecision:
+        return SimpleRAGDecision(
+            search_query="confirmation escalade formation équipe commerciale contact",
+            search_strategy="semantic",
+            context_needed=["confirmation", "escalade", "formation", "équipe", "commercial"],
+            priority_level="high",
+            should_escalate=True,
+            system_instructions="""CONTEXTE DÉTECTÉ: CONFIRMATION ESCALADE FORMATION (BLOC 6.2)
+UTILISATION: Confirmation d'escalade après présentation du BLOC M
 
 Tu dois OBLIGATOIREMENT:
 1. Appliquer le BLOC 6.2 immédiatement
@@ -624,14 +766,14 @@ Tu dois OBLIGATOIREMENT:
 Nous te répondrons dès que possible.
 
 3. Identifier le type de demande:
-   - Demande de formation spécifique → Escalade CO
-   - Besoin d'accompagnement → Escalade CO
-   - Mise en relation → Escalade CO
+   - Confirmation de recontact → Escalade CO
+   - Besoin d'appel téléphonique → Escalade CO
+   - Accompagnement personnalisé → Escalade CO
 
 4. Maintenir le ton professionnel et rassurant
 5. JAMAIS de salutations répétées - escalade directe
 6. IMPORTANT: Cette escalade doit être visible dans la BDD pour le suivi
-7. NE PAS répéter la liste des formations - aller directement à l'escalade"""
+7. NE PAS répéter le BLOC M - aller directement à l'escalade"""
         )
     
     def _create_human_decision(self) -> SimpleRAGDecision:
@@ -695,7 +837,7 @@ Tu dois OBLIGATOIREMENT:
             should_escalate=False,
             system_instructions="""CONTEXTE DÉTECTÉ: DÉLAI/TEMPS
 Tu dois OBLIGATOIREMENT:
-1. Chercher le Bloc J dans Supabase
+1. Chercher le Bloc J dans Supabase (délais généraux)
 2. Reproduire EXACTEMENT: 3-6 mois en moyenne
 3. Expliquer les facteurs (financement, réactivité, traitement)
 4. Donner les exemples de délais par type
@@ -718,6 +860,36 @@ Tu dois OBLIGATOIREMENT:
 4. Ne pas alimenter le conflit
 5. Rediriger vers une conversation constructive
 6. JAMAIS de salutations répétées - gestion directe"""
+        )
+    
+    def _create_payment_direct_delayed_decision(self) -> SimpleRAGDecision:
+        return SimpleRAGDecision(
+            search_query="paiement direct délai dépassé escalade admin",
+            search_strategy="semantic",
+            context_needed=["paiement_direct", "délai_dépassé", "escalade", "admin"],
+            priority_level="high",
+            should_escalate=True,
+            system_instructions="""CONTEXTE DÉTECTÉ: PAIEMENT DIRECT DÉLAI DÉPASSÉ (BLOC L)
+UTILISATION: Paiement direct avec délai > 7 jours
+
+Tu dois OBLIGATOIREMENT:
+1. Appliquer le BLOC L immédiatement
+2. Reproduire EXACTEMENT ce message:
+⏰ **Paiement direct : délai dépassé** ⏰
+Le délai normal c'est **7 jours max** après la formation ! 📅
+Comme c'est dépassé, **j'escalade ton dossier immédiatement** à l'équipe admin ! 🚨
+🔁 ESCALADE AGENT ADMIN
+🕐 Notre équipe traite les demandes du lundi au vendredi, de 9h à 17h (hors pause déjeuner).
+On va régler ça vite ! 💪
+
+3. Identifier le type de problème:
+   - Paiement direct en retard → Escalade admin
+   - Délai > 7 jours → Escalade admin
+
+4. Maintenir le ton professionnel et rassurant
+5. JAMAIS de salutations répétées - escalade directe
+6. IMPORTANT: Cette escalade doit être visible dans la BDD pour le suivi
+7. NE PAS confondre avec BLOC J (délais généraux)"""
         )
     
     def _create_escalade_admin_decision(self) -> SimpleRAGDecision:
