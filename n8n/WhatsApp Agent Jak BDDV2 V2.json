@@ -1,0 +1,554 @@
+{
+  "name": "WhatsApp Agent Jak BDDV2 V2",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "// Analytics de la vectorisation\nconst inputItems = $input.all();\nconst totalDocuments = inputItems.length;\n\n// Calculer les statistiques\nconst stats = {\n  total_documents: totalDocuments,\n  timestamp: new Date().toISOString(),\n  documents_by_type: {},\n  documents_by_category: {},\n  total_content_length: 0,\n  average_content_length: 0\n};\n\n// Analyser chaque document\nfor (const item of inputItems) {\n  const doc = item.json;\n  \n  // Compter par type\n  const type = doc.metadata?.type || 'unknown';\n  stats.documents_by_type[type] = (stats.documents_by_type[type] || 0) + 1;\n  \n  // Compter par catégorie\n  const category = doc.metadata?.category || 'unknown';\n  stats.documents_by_category[category] = (stats.documents_by_category[category] || 0) + 1;\n  \n  // Calculer longueur contenu\n  const contentLength = doc.content?.length || 0;\n  stats.total_content_length += contentLength;\n}\n\n// Calculer moyenne\nstats.average_content_length = Math.round(stats.total_content_length / totalDocuments);\n\nconsole.log('=== VECTORISATION BDD JAK COMPANY TERMINÉE ===');\nconsole.log('Total documents vectorisés:', stats.total_documents);\nconsole.log('Répartition par type:', JSON.stringify(stats.documents_by_type, null, 2));\nconsole.log('Répartition par catégorie:', JSON.stringify(stats.documents_by_category, null, 2));\nconsole.log('Longueur moyenne du contenu:', stats.average_content_length, 'caractères');\n\nreturn [{\n  json: {\n    status: 'success',\n    message: 'Vectorisation BDD JAK Company terminée avec succès',\n    statistics: stats,\n    next_steps: [\n      'Tester la recherche vectorielle',\n      'Intégrer le RAG tool dans l\\'AI Agent',\n      'Valider les résultats avec des requêtes test'\n    ]\n  }\n}];"
+      },
+      "id": "927901bb-f8b5-4a2d-aac0-73ca54255a69",
+      "name": "Vectorisation Analytics1",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        1700,
+        1280
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "model": "text-embedding-3-small",
+        "options": {
+          "batchSize": 100,
+          "stripNewLines": true
+        }
+      },
+      "id": "6a9c7afb-3237-49df-acdf-e62c3f12c662",
+      "name": "OpenAI Embeddings JAK2",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "position": [
+        1060,
+        1880
+      ],
+      "typeVersion": 1,
+      "credentials": {
+        "openAiApi": {
+          "id": "AGfUUiBI5vVkaYxI",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "54e0c982-d40f-4f00-a177-267eec1998d5",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1,
+      "position": [
+        -620,
+        1020
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "AGfUUiBI5vVkaYxI",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Call RAG Optimizer').first().json.session_id || 'default_session' }}"
+      },
+      "id": "6f5caf07-6698-43ff-8a6b-7d5add6a7b34",
+      "name": "Postgres Chat Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
+      "typeVersion": 1,
+      "position": [
+        -440,
+        1000
+      ],
+      "notesInFlow": false,
+      "credentials": {
+        "postgres": {
+          "id": "T2qbeS5wdx0NKd6L",
+          "name": "Postgres SUPABASE"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## RAG AI Agent with Chat Interface",
+        "height": 885,
+        "width": 933
+      },
+      "id": "f3c133f9-b910-4f72-a6f4-3166736f5809",
+      "name": "Sticky Note2",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -820,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "public": true,
+        "initialMessages": "Hi there! 👋\nMy name is Bobby. How can I assist you today?",
+        "options": {}
+      },
+      "id": "805f30d6-af77-4788-b623-ac47edf6df51",
+      "name": "When chat message received",
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -2400,
+        860
+      ],
+      "webhookId": "fbcde41e-0d9d-455a-a5d4-9434e8a4a145"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('When chat message received').item.json.chatInput }}",
+        "options": {
+          "systemMessage": "==== NOUVEAUX BLOCS DISPONIBLES ===\n\n    AMBASSADEUR_DEFINITION : Pour \"c'est quoi un ambassadeur\"\n    AFFILIATION_DEFINITION : Pour \"affiliation mail reçu\"\n\n=== INSTRUCTIONS CONTEXTUELLES ===\n{{ $('Call RAG Optimizer').first().json.system_instructions }}\n\n=== REQUÊTE OPTIMISÉE ===\nUtilise cette requête pour chercher dans Supabase : \"{{ $('Call RAG Optimizer').first().json.search_query }}\"\n\n=== CONTEXTE REQUIS ===\nFocus sur ces catégories : {{ $('Call RAG Optimizer').first().json.context_needed }}\n\n=== RÈGLES ABSOLUES RENFORCÉES ===\n\n    Cherche TOUJOURS dans Supabase Vector Store 2 avec la requête optimisée\n    Si tu trouves un bloc JAK Company → Reproduis-le EXACTEMENT avec TOUS les emojis\n    NOUVEAUX BLOCS : Si détection définition → Applique le bon bloc de définition\n    Si contexte paiement/ambassadeur/formation détecté → Applique les règles spécifiques\n    Si aucun résultat pertinent et escalade=OUI → Propose contact équipe\n    Maintiens TOUJOURS le ton chaleureux JAK Company avec emojis naturels\n\n=== PRIORITÉ DÉTECTION ===\n\n    Définitions (ambassadeur/affiliation) - PRIORITÉ ABSOLUE\n    Problèmes paiement - FILTRAGE OBLIGATOIRE\n    Devenir ambassadeur - Bloc D avec 4 étapes\n    Autres contextes selon logique établie\n\nSession ID : {{ $('Call RAG Optimizer').first().json.session_id }}"
+        }
+      },
+      "id": "fe691214-cc90-45c8-8ad2-7fb1e8a4f36c",
+      "name": "RAG AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.6,
+      "position": [
+        -700,
+        600
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "7b38fa5e-1ab4-4655-8deb-7148afc399fb",
+      "name": "Manual Test Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "position": [
+        -1060,
+        1540
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "value": "https://drive.google.com/file/d/1C6gDZD-GTc8Yc2GBbs3lLX4ocskr9Wqm/",
+          "mode": "url"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        -720,
+        1540
+      ],
+      "id": "6ba45a9f-58f1-479c-9cb3-c395244e57f6",
+      "name": "Download file",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "BoSdrr1DYv9SHrWq",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "textSplittingMode": "custom",
+        "options": {
+          "metadata": {
+            "metadataValues": [
+              {
+                "name": "source",
+                "value": "jak_bdd_pdf"
+              },
+              {
+                "name": "document_type",
+                "value": "knowledge_base"
+              },
+              {
+                "name": "category",
+                "value": "={{ $json.metadata?.category || 'general' }}"
+              },
+              {
+                "name": "priority",
+                "value": "={{ $json.metadata?.priority || 1 }}"
+              }
+            ]
+          }
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
+      "typeVersion": 1.1,
+      "position": [
+        1340,
+        1660
+      ],
+      "id": "d64c3992-b581-46a5-8c90-b7d6beafc7e1",
+      "name": "Default Data Loader"
+    },
+    {
+      "parameters": {
+        "options": {
+          "batchSize": 100,
+          "stripNewLines": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        -220,
+        1200
+      ],
+      "id": "a2f6adf8-bec1-494d-8e38-644f9d41c17e",
+      "name": "Embeddings OpenAI",
+      "credentials": {
+        "openAiApi": {
+          "id": "AGfUUiBI5vVkaYxI",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "insert",
+        "tableName": {
+          "__rl": true,
+          "value": "documents",
+          "mode": "list",
+          "cachedResultName": "documents"
+        },
+        "options": {
+          "queryName": "match_documents"
+        }
+      },
+      "id": "543f9ea5-56ad-473d-8e00-21efb071ded9",
+      "name": "Supabase Vector Store 1",
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreSupabase",
+      "position": [
+        1140,
+        1400
+      ],
+      "typeVersion": 1,
+      "credentials": {
+        "supabaseApi": {
+          "id": "5j5hfRIonFV8xgya",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolDescription": "Base de données JAK Company - LOGIQUE PRIORITAIRE STRICTE.\n\nRÈGLE ABSOLUE : Cherche D'ABORD le bloc exact correspondant à la situation.\n\nLOGIQUE CONDITIONNELLE OBLIGATOIRE :\n- Paiement formation → Chercher UNIQUEMENT \"paiement_formation\" puis APPLIQUER la logique de filtrage\n- Ambassadeur → Chercher UNIQUEMENT blocs ambassadeur  \n- Formation → Chercher UNIQUEMENT blocs formation\n\nSPÉCIAL PAIEMENT :\nSi détection \"paiement + CPF + délai >45j\" → OBLIGATOIRE : Poser d'abord la question de filtrage en BLOC F1\n\nINTERDIT : Mélanger plusieurs blocs dans une même réponse.\nOBLIGATION : UN seul bloc pertinent, reproduire MOT POUR MOT avec TOUS les emojis.\n\nCes documents JAK Company sont nos réponses officielles à reproduire exactement.",
+        "tableName": {
+          "__rl": true,
+          "value": "documents",
+          "mode": "list",
+          "cachedResultName": "documents"
+        },
+        "topK": 5,
+        "options": {
+          "queryName": "match_documents"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreSupabase",
+      "typeVersion": 1.3,
+      "position": [
+        -220,
+        940
+      ],
+      "id": "6ef66bcc-6b32-45be-83ae-9fe09e53fcc4",
+      "name": "Supabase Vector Store 2",
+      "credentials": {
+        "supabaseApi": {
+          "id": "5j5hfRIonFV8xgya",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "options": {
+          "keepSource": "both"
+        }
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        -180,
+        1540
+      ],
+      "id": "9f207bcf-9361-4a96-a49f-daef9195dad1",
+      "name": "Extract from File"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://langchainagentv2-weiwei.onrender.com/optimize_rag",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"message\": \"{{ $('When chat message received').item.json.chatInput }}\",\n  \"session_id\": \"{{ $('When chat message received').item.json.sessionId || 'default_session' }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -2180,
+        860
+      ],
+      "id": "feb2f716-dbda-4428-8ce0-1f5b86517554",
+      "name": "Call RAG Optimizer"
+    },
+    {
+      "parameters": {
+        "separator": "=////CUT////",
+        "chunkSize": 500
+      },
+      "type": "@n8n/n8n-nodes-langchain.textSplitterCharacterTextSplitter",
+      "typeVersion": 1,
+      "position": [
+        1420,
+        1880
+      ],
+      "id": "64d756a0-0daa-4d24-b17c-c9d93c148847",
+      "name": "Character Text Splitter"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "OpenAI Embeddings JAK2": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Supabase Vector Store 1",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "RAG AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres Chat Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "RAG AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When chat message received": {
+      "main": [
+        [
+          {
+            "node": "Call RAG Optimizer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Test Trigger": {
+      "main": [
+        [
+          {
+            "node": "Download file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download file": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Default Data Loader": {
+      "ai_document": [
+        [
+          {
+            "node": "Supabase Vector Store 1",
+            "type": "ai_document",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings OpenAI": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Supabase Vector Store 2",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase Vector Store 1": {
+      "main": [
+        [
+          {
+            "node": "Vectorisation Analytics1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase Vector Store 2": {
+      "ai_tool": [
+        [
+          {
+            "node": "RAG AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "Supabase Vector Store 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call RAG Optimizer": {
+      "main": [
+        [
+          {
+            "node": "RAG AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Character Text Splitter": {
+      "ai_textSplitter": [
+        [
+          {
+            "node": "Default Data Loader",
+            "type": "ai_textSplitter",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Paris",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "3c672a49-4e53-43d7-88e4-7e18504335ca",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "6b2cf4f3d9b28e507a8c36ffb37c88179209c4713fb3f2f565c565589ee75b1e"
+  },
+  "id": "TKZ2oUbBYSOLjiN6",
+  "tags": [
+    {
+      "createdAt": "2025-07-15T09:47:55.601Z",
+      "updatedAt": "2025-07-15T09:47:55.601Z",
+      "id": "6F8LClVZgyWsyPsK",
+      "name": "JAK Company"
+    },
+    {
+      "createdAt": "2025-06-11T10:43:11.223Z",
+      "updatedAt": "2025-06-11T10:43:11.223Z",
+      "id": "CWpb2RP1OjTkXMOH",
+      "name": "WhatsApp"
+    },
+    {
+      "createdAt": "2025-06-11T12:43:17.455Z",
+      "updatedAt": "2025-06-11T12:43:17.455Z",
+      "id": "HabTYLL8P1SnU454",
+      "name": "Test Mode"
+    },
+    {
+      "createdAt": "2025-07-22T07:52:17.518Z",
+      "updatedAt": "2025-07-22T07:52:17.518Z",
+      "id": "Jbk4yv5SooHdP5nb",
+      "name": "RAG Optimisé"
+    },
+    {
+      "createdAt": "2025-06-11T12:43:17.430Z",
+      "updatedAt": "2025-06-11T12:43:17.430Z",
+      "id": "Tx9Klt2D788Z0DZI",
+      "name": "Development"
+    },
+    {
+      "createdAt": "2025-07-15T09:47:55.412Z",
+      "updatedAt": "2025-07-15T09:47:55.412Z",
+      "id": "cIYb0D73ISCbcxaW",
+      "name": "Vectorisation"
+    },
+    {
+      "createdAt": "2025-06-11T10:53:43.569Z",
+      "updatedAt": "2025-06-11T10:53:43.569Z",
+      "id": "d7AIlsYUOlNK2RO4",
+      "name": "OpenAI"
+    },
+    {
+      "createdAt": "2025-06-11T10:43:11.272Z",
+      "updatedAt": "2025-06-11T10:43:11.272Z",
+      "id": "dQk57NB44pzqZ4On",
+      "name": "Customer Service"
+    },
+    {
+      "createdAt": "2025-07-15T09:47:55.346Z",
+      "updatedAt": "2025-07-15T09:47:55.346Z",
+      "id": "exJQTj1ufWal7OxH",
+      "name": "RAG"
+    },
+    {
+      "createdAt": "2025-06-11T10:43:11.246Z",
+      "updatedAt": "2025-06-11T10:43:11.246Z",
+      "id": "kpMwGcAtpoqomxqc",
+      "name": "AI Agent"
+    },
+    {
+      "createdAt": "2025-07-15T09:47:55.372Z",
+      "updatedAt": "2025-07-15T09:47:55.372Z",
+      "id": "sjDRQLvH0Fm1iTzg",
+      "name": "Supabase"
+    }
+  ]
+}
