@@ -229,9 +229,8 @@ class KeywordSets:
         self.escalade_admin_keywords = frozenset([
             # Paiements et délais anormaux
             "délai anormal", "retard anormal", "paiement en retard", "virement en retard",
-            "pas reçu mon argent", "argent pas arrivé", "virement pas reçu",
+            "argent pas arrivé", "virement pas reçu",
             "paiement bloqué", "virement bloqué", "argent bloqué",
-            "pas reçu", "n'ai pas reçu", "n'ai pas eu", "pas eu",
             "en retard", "retard", "bloqué", "bloquée",
             # Preuves et dossiers
             "justificatif", "preuve", "attestation", "certificat", "facture",
@@ -377,12 +376,26 @@ class OptimizedRAGEngine:
             "j'attends toujours mon argent", "j'attends toujours mon paiement",
             "j'attends toujours mon virement", "j'attends encore mon argent",
             "j'attends encore mon paiement", "j'attends encore mon virement",
+            # Demandes avec "toujours pas" (NOUVEAU - CORRECTION DU BUG)
+            "toujours pas reçu", "toujours pas payé", "toujours pas payée",
+            "toujours pas eu", "toujours pas touché", "toujours pas touchée",
+            "j'ai toujours pas reçu", "j'ai toujours pas payé", "j'ai toujours pas payée",
+            "j'ai toujours pas eu", "j'ai toujours pas touché", "j'ai toujours pas touchée",
+            "je n'ai toujours pas reçu", "je n'ai toujours pas payé", "je n'ai toujours pas payée",
+            "je n'ai toujours pas eu", "je n'ai toujours pas touché", "je n'ai toujours pas touchée",
+            # Demandes avec "toujours pas été" (NOUVEAU - CORRECTION DU BUG)
+            "toujours pas été payé", "toujours pas été payée",
+            "j'ai toujours pas été payé", "j'ai toujours pas été payée",
+            "je n'ai toujours pas été payé", "je n'ai toujours pas été payée",
             # Demandes avec "pas"
             "pas reçu", "pas payé", "pas payée", "pas eu", "pas touché", "pas touchée",
             "n'ai pas reçu", "n'ai pas payé", "n'ai pas payée", "n'ai pas eu",
             "n'ai pas touché", "n'ai pas touchée", "je n'ai pas reçu",
             "je n'ai pas payé", "je n'ai pas payée", "je n'ai pas eu",
             "je n'ai pas touché", "je n'ai pas touchée",
+            # Demandes avec "reçois quand" (NOUVEAU - CORRECTION DU BUG)
+            "reçois quand", "reçois quand mes", "reçois quand mon",
+            "je reçois quand", "je reçois quand mes", "je reçois quand mon",
             # Termes génériques de paiement
             "sous", "tune", "argent", "paiement", "virement", "rémunération"
         ])
