@@ -367,10 +367,19 @@ class OptimizedRAGEngine:
             # Vérifier le contexte de conversation
             conversation_context = memory_store.get(session_id)
             
-            # Chercher si le BLOC K a été présenté récemment
+            # Chercher si le BLOC K a été présenté récemment (détection améliorée)
             bloc_k_presented = False
-            for msg in conversation_context[-3:]:  # Derniers 3 messages
-                if "BLOC K" in str(msg.get("content", "")) or "formations disponibles" in str(msg.get("content", "")):
+            for msg in conversation_context[-5:]:  # Derniers 5 messages
+                content = str(msg.get("content", "")).lower()
+                # Détection plus robuste du BLOC K
+                if any(phrase in content for phrase in [
+                    "formations disponibles", 
+                    "+100 formations", 
+                    "jak company",
+                    "bureautique", "informatique", "langues", "web/3d",
+                    "vente & marketing", "développement personnel",
+                    "écologie numérique", "bilan compétences"
+                ]):
                     bloc_k_presented = True
                     break
             
@@ -395,10 +404,18 @@ class OptimizedRAGEngine:
             # Vérifier le contexte de conversation
             conversation_context = memory_store.get(session_id)
             
-            # Chercher si le BLOC M a été présenté récemment
+            # Chercher si le BLOC M a été présenté récemment (détection améliorée)
             bloc_m_presented = False
-            for msg in conversation_context[-3:]:  # Derniers 3 messages
-                if "BLOC M" in str(msg.get("content", "")) or "équipe commerciale" in str(msg.get("content", "")) or "recontacte" in str(msg.get("content", "")):
+            for msg in conversation_context[-5:]:  # Derniers 5 messages
+                content = str(msg.get("content", "")).lower()
+                # Détection plus robuste du BLOC M
+                if any(phrase in content for phrase in [
+                    "excellent choix", 
+                    "équipe commerciale", 
+                    "recontacte", "recontactez",
+                    "financement optimal", "planning adapté", "accompagnement perso",
+                    "ok pour qu'on te recontacte", "meilleure stratégie pour toi"
+                ]):
                     bloc_m_presented = True
                     break
             
@@ -484,9 +501,20 @@ class OptimizedRAGEngine:
             elif self._is_formation_escalade_request(message_lower, session_id):
                 decision = self._create_formation_escalade_decision()
             
-            # Formation detection
+            # Formation detection avec logique anti-répétition
             elif self._has_keywords(message_lower, self.keyword_sets.formation_keywords):
-                decision = self._create_formation_decision(message)
+                # Vérifier si les formations ont déjà été présentées
+                if self._has_formation_been_presented(session_id):
+                    # Si BLOC K déjà présenté, vérifier si BLOC M a été présenté
+                    if self._has_bloc_m_been_presented(session_id):
+                        # Si BLOC M déjà présenté, escalader directement
+                        decision = self._create_formation_confirmation_decision()
+                    else:
+                        # Si BLOC K présenté mais pas BLOC M, présenter BLOC M
+                        decision = self._create_formation_escalade_decision()
+                else:
+                    # Première demande de formation, présenter BLOC K
+                    decision = self._create_formation_decision(message)
             
             # Human contact detection
             elif self._has_keywords(message_lower, self.keyword_sets.human_keywords):
@@ -699,9 +727,9 @@ Tu dois OBLIGATOIREMENT:
             context_needed=["formation", "cpf", "catalogue", "professionnel"],
             priority_level="medium",
             should_escalate=False,
-            system_instructions="""CONTEXTE DÉTECTÉ: FORMATION
-RÈGLE ABSOLUE - PRIORITÉ BLOC K :
-1. OBLIGATOIRE : Commencer TOUJOURS par le BLOC K (formations disponibles)
+            system_instructions="""CONTEXTE DÉTECTÉ: FORMATION (BLOC K)
+RÈGLE ABSOLUE - PREMIÈRE PRÉSENTATION FORMATIONS :
+1. OBLIGATOIRE : Présenter le BLOC K UNE SEULE FOIS par conversation
 2. BLOC K = "🎓 **+100 formations disponibles chez JAK Company !** 🎓"
 3. Reproduire EXACTEMENT le BLOC K avec tous les emojis et spécialités
 4. APRÈS le BLOC K, si question CPF → Bloc C (plus de CPF disponible)
@@ -710,7 +738,8 @@ RÈGLE ABSOLUE - PRIORITÉ BLOC K :
 7. Orienter vers les bons financements (OPCO, entreprise)
 8. Proposer contact humain si besoin (Bloc G)
 9. JAMAIS de salutations répétées - contenu direct
-10. TOUJOURS commencer par présenter les formations disponibles (BLOC K)"""
+10. IMPORTANT : Ce BLOC K ne doit être présenté qu'une seule fois par conversation
+11. APRÈS le BLOC K, les demandes suivantes doivent aller vers BLOC M puis BLOC 6.2"""
         )
     
     def _create_formation_escalade_decision(self) -> SimpleRAGDecision:
@@ -1011,6 +1040,55 @@ class OptimizedMemoryManager:
         except Exception as e:
             logger.error(f"Erreur récupération contexte: {str(e)}")
             return []
+
+    def _has_formation_been_presented(self, session_id: str) -> bool:
+        """Vérifie si les formations ont déjà été présentées dans cette conversation"""
+        try:
+            conversation_context = memory_store.get(session_id)
+            
+            # Chercher si le BLOC K a déjà été présenté
+            for msg in conversation_context:
+                content = str(msg.get("content", "")).lower()
+                # Détection robuste du BLOC K déjà présenté
+                if any(phrase in content for phrase in [
+                    "formations disponibles", 
+                    "+100 formations", 
+                    "jak company",
+                    "bureautique", "informatique", "langues", "web/3d",
+                    "vente & marketing", "développement personnel",
+                    "écologie numérique", "bilan compétences"
+                ]):
+                    return True
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"Erreur vérification formations présentées: {str(e)}")
+            return False
+    
+    def _has_bloc_m_been_presented(self, session_id: str) -> bool:
+        """Vérifie si le BLOC M a déjà été présenté dans cette conversation"""
+        try:
+            conversation_context = memory_store.get(session_id)
+            
+            # Chercher si le BLOC M a déjà été présenté
+            for msg in conversation_context:
+                content = str(msg.get("content", "")).lower()
+                # Détection robuste du BLOC M déjà présenté
+                if any(phrase in content for phrase in [
+                    "excellent choix", 
+                    "équipe commerciale", 
+                    "recontacte", "recontactez",
+                    "financement optimal", "planning adapté", "accompagnement perso",
+                    "ok pour qu'on te recontacte", "meilleure stratégie pour toi"
+                ]):
+                    return True
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"Erreur vérification BLOC M présenté: {str(e)}")
+            return False
 
 # ENDPOINTS API
 @app.get("/")
