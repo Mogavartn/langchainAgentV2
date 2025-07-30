@@ -1,388 +1,316 @@
 #!/bin/bash
 
-# JAK Company RAG API v2.4 - Optimized Deployment Script
-# Performance-optimized deployment for LangChain WhatsApp AI Agent
+# 🚀 Script de déploiement optimisé pour JAK Company RAG API
+# Version 3.0-Clean
 
-set -e  # Exit on any error
+set -e  # Arrêt en cas d'erreur
 
-echo "🚀 JAK Company RAG API v2.4 - Performance Optimized Deployment"
-echo "================================================================"
-echo
+# Configuration
+PROJECT_NAME="jak-company-rag-api"
+VERSION="3.0-Clean"
+DEPLOY_ENV=${1:-"production"}
 
-# Color codes for output
+# Couleurs pour les logs
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Function to print colored output
-print_status() {
-    echo -e "${GREEN}[INFO]${NC} $1"
+# Fonctions de logging
+log_info() {
+    echo -e "${BLUE}ℹ️  $1${NC}"
 }
 
-print_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
+log_success() {
+    echo -e "${GREEN}✅ $1${NC}"
 }
 
-print_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
+log_warning() {
+    echo -e "${YELLOW}⚠️  $1${NC}"
 }
 
-print_header() {
-    echo -e "${BLUE}[STEP]${NC} $1"
+log_error() {
+    echo -e "${RED}❌ $1${NC}"
 }
 
-# Check if Python 3.8+ is available
-print_header "Checking Python version..."
-python_version=$(python3 --version 2>&1 | awk '{print $2}' | cut -d. -f1,2)
-required_version="3.8"
-
-if ! python3 -c "import sys; exit(0 if sys.version_info >= (3, 8) else 1)"; then
-    print_error "Python 3.8+ is required. Current version: $python_version"
-    exit 1
-fi
-
-print_status "Python version check passed: $python_version"
-
-# Create optimized virtual environment
-print_header "Setting up optimized virtual environment..."
-if [ -d "venv_optimized" ]; then
-    print_warning "Removing existing virtual environment..."
-    rm -rf venv_optimized
-fi
-
-python3 -m venv venv_optimized
-source venv_optimized/bin/activate
-
-print_status "Virtual environment created and activated"
-
-# Upgrade pip for better performance
-print_header "Upgrading pip for optimal package installation..."
-pip install --upgrade pip setuptools wheel
-
-# Install optimized dependencies
-print_header "Installing performance-optimized dependencies..."
-pip install -r requirements.txt
-
-print_status "Dependencies installed successfully"
-
-# Verify critical packages
-print_header "Verifying critical package installations..."
-critical_packages=("fastapi" "uvicorn" "openai" "cachetools" "pydantic")
-
-for package in "${critical_packages[@]}"; do
-    if python3 -c "import $package" 2>/dev/null; then
-        print_status "✓ $package installed correctly"
-    else
-        print_error "✗ $package installation failed"
+# Vérifications pré-déploiement
+pre_deployment_checks() {
+    log_info "🔍 Vérifications pré-déploiement..."
+    
+    # Vérifier que Python est installé
+    if ! command -v python3 &> /dev/null; then
+        log_error "Python3 n'est pas installé"
         exit 1
     fi
-done
+    
+    # Vérifier que pip est installé
+    if ! command -v pip3 &> /dev/null; then
+        log_error "pip3 n'est pas installé"
+        exit 1
+    fi
+    
+    # Vérifier que les fichiers essentiels existent
+    if [ ! -f "process_optimized.py" ]; then
+        log_error "process_optimized.py n'existe pas"
+        exit 1
+    fi
+    
+    if [ ! -f "requirements.txt" ]; then
+        log_error "requirements.txt n'existe pas"
+        exit 1
+    fi
+    
+    log_success "Vérifications pré-déploiement terminées"
+}
 
-# Set performance-optimized environment variables
-print_header "Configuring performance environment variables..."
+# Installation des dépendances
+install_dependencies() {
+    log_info "📦 Installation des dépendances..."
+    
+    # Mettre à jour pip
+    pip3 install --upgrade pip
+    
+    # Installer les dépendances
+    pip3 install -r requirements.txt
+    
+    log_success "Dépendances installées"
+}
 
-# Create .env file with optimized settings
-cat > .env << EOF
-# JAK Company RAG API v2.4 - Performance Configuration
+# Tests de validation
+run_tests() {
+    log_info "🧪 Exécution des tests de validation..."
+    
+    # Test de syntaxe Python
+    python3 -m py_compile process_optimized.py
+    log_success "Syntaxe Python valide"
+    
+    # Tests fonctionnels (si le fichier existe)
+    if [ -f "test_optimized.py" ]; then
+        log_info "Exécution des tests fonctionnels..."
+        python3 test_optimized.py
+        log_success "Tests fonctionnels passés"
+    else
+        log_warning "Fichier de test non trouvé, tests ignorés"
+    fi
+}
 
-# Server Configuration
-PORT=8000
-HOST=0.0.0.0
-WORKERS=1
+# Nettoyage et optimisation
+cleanup_and_optimize() {
+    log_info "🧹 Nettoyage et optimisation..."
+    
+    # Nettoyer les caches Python
+    find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+    find . -name "*.pyc" -delete 2>/dev/null || true
+    find . -name "*.pyo" -delete 2>/dev/null || true
+    
+    # Nettoyer les fichiers temporaires
+    find . -name "*.tmp" -delete 2>/dev/null || true
+    find . -name "*.log" -delete 2>/dev/null || true
+    
+    log_success "Nettoyage terminé"
+}
 
-# Performance Optimizations
-PYTHONUNBUFFERED=1
-PYTHONDONTWRITEBYTECODE=1
-PYTHONHASHSEED=random
+# Sauvegarde de l'ancienne version
+backup_old_version() {
+    log_info "💾 Sauvegarde de l'ancienne version..."
+    
+    BACKUP_DIR="backup_$(date +%Y%m%d_%H%M%S)"
+    mkdir -p "$BACKUP_DIR"
+    
+    # Sauvegarder l'ancien process.py s'il existe
+    if [ -f "process.py" ]; then
+        cp process.py "$BACKUP_DIR/process_old.py"
+        log_success "Ancien process.py sauvegardé"
+    fi
+    
+    # Sauvegarder les logs s'ils existent
+    if [ -d "logs" ]; then
+        cp -r logs "$BACKUP_DIR/"
+        log_success "Logs sauvegardés"
+    fi
+    
+    log_success "Sauvegarde terminée dans $BACKUP_DIR"
+}
 
-# Memory Management
-MAX_MEMORY_SESSIONS=1000
-SESSION_TTL_SECONDS=3600
-CACHE_TTL_SECONDS=1800
+# Déploiement de la nouvelle version
+deploy_new_version() {
+    log_info "🚀 Déploiement de la nouvelle version..."
+    
+    # Renommer le fichier optimisé
+    if [ -f "process_optimized.py" ]; then
+        mv process_optimized.py process.py
+        log_success "process_optimized.py renommé en process.py"
+    fi
+    
+    # Créer les dossiers nécessaires
+    mkdir -p logs
+    mkdir -p data
+    
+    # Définir les permissions
+    chmod +x process.py
+    chmod 644 requirements.txt
+    
+    log_success "Nouvelle version déployée"
+}
 
-# Logging Configuration (Optimized)
+# Configuration de l'environnement
+configure_environment() {
+    log_info "⚙️  Configuration de l'environnement..."
+    
+    # Vérifier les variables d'environnement
+    if [ -z "$OPENAI_API_KEY" ]; then
+        log_warning "OPENAI_API_KEY non définie"
+    else
+        log_success "OPENAI_API_KEY configurée"
+    fi
+    
+    # Créer le fichier de configuration si nécessaire
+    if [ ! -f ".env" ]; then
+        cat > .env << EOF
+# Configuration JAK Company RAG API
+OPENAI_API_KEY=${OPENAI_API_KEY:-""}
+ENVIRONMENT=${DEPLOY_ENV}
+VERSION=${VERSION}
 LOG_LEVEL=INFO
-DISABLE_ACCESS_LOG=true
-
-# AsyncIO Configuration
-ASYNCIO_LOOP=asyncio
-UVLOOP_ENABLED=false
-
-# OpenAI Configuration (Set your key)
-# OPENAI_API_KEY=your_openai_api_key_here
-
-# Monitoring
-ENABLE_METRICS=true
-METRICS_ENDPOINT=/performance_metrics
+MEMORY_TTL=3600
+MEMORY_MAX_SIZE=1000
 EOF
-
-print_status "Environment configuration created"
-
-# Create systemd service file for production deployment
-print_header "Creating systemd service configuration..."
-
-cat > jak-rag-api.service << EOF
-[Unit]
-Description=JAK Company RAG API v2.4 - Performance Optimized
-After=network.target
-
-[Service]
-Type=simple
-User=www-data
-WorkingDirectory=$(pwd)
-Environment=PATH=$(pwd)/venv_optimized/bin
-ExecStart=$(pwd)/venv_optimized/bin/python process.py
-Restart=always
-RestartSec=10
-
-# Performance Optimizations
-LimitNOFILE=65536
-LimitNPROC=4096
-
-# Memory Management
-MemoryMax=2G
-MemorySwapMax=0
-
-# Security
-NoNewPrivileges=yes
-ProtectSystem=strict
-ProtectHome=yes
-ReadWritePaths=$(pwd)
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-print_status "Systemd service file created: jak-rag-api.service"
-
-# Create monitoring script
-print_header "Creating performance monitoring script..."
-
-cat > monitor_performance.sh << 'EOF'
-#!/bin/bash
-
-# Performance Monitoring Script for JAK Company RAG API v2.4
-
-API_URL="http://localhost:8000"
-LOG_FILE="performance_monitor.log"
-
-echo "$(date): Starting performance monitoring..." >> $LOG_FILE
-
-while true; do
-    # Check health
-    health_status=$(curl -s "$API_URL/health" | jq -r '.status' 2>/dev/null || echo "error")
-    
-    # Get memory status
-    memory_info=$(curl -s "$API_URL/memory_status" 2>/dev/null)
-    memory_utilization=$(echo $memory_info | jq -r '.memory_optimization.utilization_percentage' 2>/dev/null || echo "N/A")
-    
-    # Get performance metrics
-    perf_info=$(curl -s "$API_URL/performance_metrics" 2>/dev/null)
-    optimization_status=$(echo $perf_info | jq -r '.optimization_status' 2>/dev/null || echo "N/A")
-    
-    # Log status
-    timestamp=$(date)
-    echo "$timestamp - Health: $health_status, Memory: $memory_utilization%, Optimization: $optimization_status" >> $LOG_FILE
-    
-    # Alert if memory usage is high
-    if [[ "$memory_utilization" != "N/A" ]] && (( $(echo "$memory_utilization > 80" | bc -l) )); then
-        echo "$timestamp - WARNING: High memory utilization: $memory_utilization%" >> $LOG_FILE
+        log_success "Fichier .env créé"
     fi
     
-    # Alert if service is down
-    if [[ "$health_status" != "healthy" ]]; then
-        echo "$timestamp - ALERT: Service unhealthy: $health_status" >> $LOG_FILE
+    log_success "Environnement configuré"
+}
+
+# Test de démarrage
+test_startup() {
+    log_info "🔧 Test de démarrage..."
+    
+    # Test de démarrage rapide (timeout 30s)
+    timeout 30s python3 -c "
+import process
+print('✅ Import réussi')
+" || {
+        log_error "Test de démarrage échoué"
+        exit 1
+    }
+    
+    log_success "Test de démarrage réussi"
+}
+
+# Démarrage du service
+start_service() {
+    log_info "🚀 Démarrage du service..."
+    
+    # Vérifier si le service est déjà en cours
+    if pgrep -f "process.py" > /dev/null; then
+        log_warning "Service déjà en cours, arrêt..."
+        pkill -f "process.py" || true
+        sleep 2
     fi
     
-    sleep 60  # Check every minute
-done
-EOF
+    # Démarrer le service en arrière-plan
+    nohup python3 process.py > logs/app.log 2>&1 &
+    SERVICE_PID=$!
+    
+    # Attendre que le service démarre
+    sleep 5
+    
+    # Vérifier que le service fonctionne
+    if kill -0 $SERVICE_PID 2>/dev/null; then
+        log_success "Service démarré (PID: $SERVICE_PID)"
+    else
+        log_error "Échec du démarrage du service"
+        exit 1
+    fi
+}
 
-chmod +x monitor_performance.sh
-print_status "Performance monitoring script created: monitor_performance.sh"
+# Tests de santé
+health_check() {
+    log_info "🏥 Tests de santé..."
+    
+    # Attendre que le service soit prêt
+    sleep 10
+    
+    # Test de l'endpoint de santé
+    if command -v curl &> /dev/null; then
+        if curl -f http://localhost:8000/health > /dev/null 2>&1; then
+            log_success "Endpoint de santé accessible"
+        else
+            log_error "Endpoint de santé inaccessible"
+            exit 1
+        fi
+    else
+        log_warning "curl non disponible, test de santé ignoré"
+    fi
+    
+    log_success "Tests de santé passés"
+}
 
-# Create load testing helper script
-print_header "Creating load testing helper script..."
+# Affichage des informations de déploiement
+show_deployment_info() {
+    log_info "📊 Informations de déploiement"
+    echo "=================================="
+    echo "Projet: $PROJECT_NAME"
+    echo "Version: $VERSION"
+    echo "Environnement: $DEPLOY_ENV"
+    echo "Port: 8000"
+    echo "Logs: logs/app.log"
+    echo "PID: $(pgrep -f 'process.py' || echo 'Non trouvé')"
+    echo "=================================="
+    
+    log_success "Déploiement terminé avec succès!"
+}
 
-cat > run_performance_tests.sh << 'EOF'
-#!/bin/bash
+# Fonction principale
+main() {
+    echo "🚀 DÉPLOIEMENT JAK COMPANY RAG API v$VERSION"
+    echo "=============================================="
+    
+    pre_deployment_checks
+    install_dependencies
+    run_tests
+    cleanup_and_optimize
+    backup_old_version
+    deploy_new_version
+    configure_environment
+    test_startup
+    start_service
+    health_check
+    show_deployment_info
+}
 
-# Load Testing Helper Script for JAK Company RAG API v2.4
-
-echo "🧪 Performance Testing Suite"
-echo "============================"
-
-# Check if locust is installed
-if ! command -v locust &> /dev/null; then
-    echo "Installing locust for load testing..."
-    pip install locust pytest-benchmark
-fi
-
-# Check if API is running
-if ! curl -s http://localhost:8000/health > /dev/null; then
-    echo "❌ API is not running. Please start it first:"
-    echo "   python process.py"
-    exit 1
-fi
-
-echo "✅ API is running, starting load tests..."
-echo
-echo "Test options:"
-echo "1. Light load test (10 users, 2 min)"
-echo "2. Medium load test (50 users, 5 min)"
-echo "3. Heavy load test (100 users, 10 min)"
-echo "4. Cache performance test (20 users, 3 min)"
-echo "5. Custom test (interactive)"
-
-read -p "Select test option (1-5): " option
-
-case $option in
-    1)
-        echo "Running light load test..."
-        locust -f performance_tests.py --host=http://localhost:8000 --users 10 --spawn-rate 2 --run-time 2m --headless
+# Gestion des arguments
+case "${1:-}" in
+    "production"|"staging"|"development")
+        main
         ;;
-    2)
-        echo "Running medium load test..."
-        locust -f performance_tests.py --host=http://localhost:8000 --users 50 --spawn-rate 5 --run-time 5m --headless
+    "test")
+        log_info "🧪 Mode test uniquement"
+        pre_deployment_checks
+        install_dependencies
+        run_tests
         ;;
-    3)
-        echo "Running heavy load test..."
-        locust -f performance_tests.py --host=http://localhost:8000 --users 100 --spawn-rate 10 --run-time 10m --headless
+    "clean")
+        log_info "🧹 Mode nettoyage uniquement"
+        cleanup_and_optimize
         ;;
-    4)
-        echo "Running cache performance test..."
-        locust -f performance_tests.py --host=http://localhost:8000 --users 20 --spawn-rate 5 --run-time 3m --headless CachePerformanceUser
-        ;;
-    5)
-        echo "Starting interactive locust web interface..."
-        echo "Open http://localhost:8089 in your browser"
-        locust -f performance_tests.py --host=http://localhost:8000
+    "help"|"-h"|"--help")
+        echo "Usage: $0 [environment]"
+        echo ""
+        echo "Environnements:"
+        echo "  production  - Déploiement complet en production"
+        echo "  staging     - Déploiement en staging"
+        echo "  development - Déploiement en développement"
+        echo ""
+        echo "Options:"
+        echo "  test        - Tests uniquement"
+        echo "  clean       - Nettoyage uniquement"
+        echo "  help        - Afficher cette aide"
         ;;
     *)
-        echo "Invalid option. Please run the script again."
+        log_error "Environnement invalide: $1"
+        echo "Utilisez '$0 help' pour voir les options disponibles"
         exit 1
         ;;
 esac
-EOF
-
-chmod +x run_performance_tests.sh
-print_status "Load testing helper script created: run_performance_tests.sh"
-
-# Create startup script
-print_header "Creating optimized startup script..."
-
-cat > start_optimized.sh << 'EOF'
-#!/bin/bash
-
-# Optimized Startup Script for JAK Company RAG API v2.4
-
-echo "🚀 Starting JAK Company RAG API v2.4 - Performance Optimized"
-echo "============================================================"
-
-# Activate virtual environment
-source venv_optimized/bin/activate
-
-# Load environment variables
-if [ -f .env ]; then
-    export $(cat .env | grep -v '^#' | xargs)
-fi
-
-# Set performance environment variables
-export PYTHONUNBUFFERED=1
-export PYTHONDONTWRITEBYTECODE=1
-export PYTHONHASHSEED=random
-
-# Check if OpenAI API key is set
-if [ -z "$OPENAI_API_KEY" ]; then
-    echo "⚠️  WARNING: OPENAI_API_KEY not set. Some features may not work."
-    echo "   Set it in .env file or export OPENAI_API_KEY=your_key"
-fi
-
-# Start the optimized server
-echo "Starting server with performance optimizations..."
-python process.py
-EOF
-
-chmod +x start_optimized.sh
-print_status "Startup script created: start_optimized.sh"
-
-# Performance validation
-print_header "Running performance validation..."
-
-# Start server in background for testing
-echo "Starting server for validation..."
-source venv_optimized/bin/activate
-python process.py &
-SERVER_PID=$!
-
-# Wait for server to start
-sleep 5
-
-# Test endpoints
-echo "Testing API endpoints..."
-endpoints=("/" "/health" "/performance_metrics" "/memory_status")
-
-for endpoint in "${endpoints[@]}"; do
-    if curl -s "http://localhost:8000$endpoint" > /dev/null; then
-        print_status "✓ $endpoint responding"
-    else
-        print_warning "✗ $endpoint not responding"
-    fi
-done
-
-# Test main functionality
-echo "Testing main RAG endpoint..."
-test_payload='{"message": "Test message", "session_id": "test_deployment"}'
-response=$(curl -s -X POST "http://localhost:8000/optimize_rag" \
-    -H "Content-Type: application/json" \
-    -d "$test_payload")
-
-if echo "$response" | grep -q "optimized_response"; then
-    print_status "✓ RAG endpoint working correctly"
-else
-    print_warning "✗ RAG endpoint may have issues"
-fi
-
-# Stop test server
-kill $SERVER_PID 2>/dev/null || true
-
-# Final deployment summary
-print_header "Deployment Summary"
-echo
-print_status "✅ JAK Company RAG API v2.4 deployment completed successfully!"
-echo
-echo "📁 Files created:"
-echo "   - venv_optimized/          (Optimized virtual environment)"
-echo "   - .env                     (Performance configuration)"
-echo "   - jak-rag-api.service      (Systemd service file)"
-echo "   - start_optimized.sh       (Startup script)"
-echo "   - monitor_performance.sh   (Performance monitoring)"
-echo "   - run_performance_tests.sh (Load testing helper)"
-echo
-echo "🚀 To start the optimized server:"
-echo "   ./start_optimized.sh"
-echo
-echo "📊 To monitor performance:"
-echo "   ./monitor_performance.sh &"
-echo
-echo "🧪 To run performance tests:"
-echo "   ./run_performance_tests.sh"
-echo
-echo "🔧 For production deployment:"
-echo "   sudo cp jak-rag-api.service /etc/systemd/system/"
-echo "   sudo systemctl enable jak-rag-api"
-echo "   sudo systemctl start jak-rag-api"
-echo
-echo "📈 Performance improvements implemented:"
-echo "   - 75% faster response times through caching"
-echo "   - 90% faster keyword matching with frozensets"
-echo "   - 60% memory usage reduction with TTL cleanup"
-echo "   - Enhanced concurrency with async/await patterns"
-echo "   - Comprehensive performance monitoring"
-echo
-print_status "Deployment completed! 🎉"
-EOF
-
-chmod +x deploy_optimized.sh
