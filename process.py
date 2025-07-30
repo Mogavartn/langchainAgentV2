@@ -151,14 +151,20 @@ class KeywordSets:
         self.formation_keywords = frozenset([
             "formation", "cours", "apprendre", "catalogue", "proposez",
             "disponible", "enseigner", "stage", "bureautique", 
-            "informatique", "langues", "anglais", "excel"
+            "informatique", "langues", "anglais", "excel", "quelles",
+            "quels", "quelles sont", "quels sont", "proposez-vous",
+            "avez-vous", "disponibles", "disponible", "offrez-vous",
+            "formations", "cours", "apprentissage", "étudier"
         ])
         
         # NOUVEAUX MOTS-CLÉS POUR DÉTECTION ESCALADE FORMATION
         self.formation_escalade_keywords = frozenset([
             "oui", "ok", "d'accord", "parfait", "super", "ça m'intéresse",
             "je veux bien", "c'est possible", "comment faire", "plus d'infos",
-            "mettre en relation", "équipe commerciale", "contact"
+            "mettre en relation", "équipe commerciale", "contact", "m'intéresse",
+            "intéressé", "intéressée", "ça m'intéresse", "je suis intéressé",
+            "je suis intéressée", "ça m'intéresse", "je veux", "je voudrais",
+            "je souhaite", "je souhaiterais", "je désire", "je voudrais bien"
         ])
         
         # NOUVEAUX MOTS-CLÉS POUR BLOC M (CONFIRMATION ESCALADE FORMATION)
@@ -167,7 +173,12 @@ class KeywordSets:
             "je veux bien", "c'est possible", "comment faire", "plus d'infos",
             "mettre en relation", "équipe commerciale", "contact", "recontacte",
             "recontactez", "recontactez-moi", "recontacte-moi", "appelez-moi",
-            "appellez-moi", "appel", "téléphone", "téléphoner"
+            "appellez-moi", "appel", "téléphone", "téléphoner", "m'intéresse",
+            "intéressé", "intéressée", "ça m'intéresse", "je suis intéressé",
+            "je suis intéressée", "ça m'intéresse", "je veux", "je voudrais",
+            "je souhaite", "je souhaiterais", "je désire", "je voudrais bien",
+            "être mis en contact", "être mis en relation", "mettre en contact",
+            "mettre en relation", "équipe", "commerciale", "commercial"
         ])
         
         self.human_keywords = frozenset([
@@ -364,26 +375,8 @@ class OptimizedRAGEngine:
             if not has_escalade_keywords:
                 return False
             
-            # Vérifier le contexte de conversation
-            conversation_context = memory_store.get(session_id)
-            
-            # Chercher si le BLOC K a été présenté récemment (détection améliorée)
-            bloc_k_presented = False
-            for msg in conversation_context[-5:]:  # Derniers 5 messages
-                content = str(msg.get("content", "")).lower()
-                # Détection plus robuste du BLOC K
-                if any(phrase in content for phrase in [
-                    "formations disponibles", 
-                    "+100 formations", 
-                    "jak company",
-                    "bureautique", "informatique", "langues", "web/3d",
-                    "vente & marketing", "développement personnel",
-                    "écologie numérique", "bilan compétences"
-                ]):
-                    bloc_k_presented = True
-                    break
-            
-            return bloc_k_presented
+            # Utiliser la méthode statique pour vérifier si BLOC K a été présenté
+            return OptimizedMemoryManager.has_bloc_been_presented(session_id, "K")
             
         except Exception as e:
             logger.error(f"Erreur détection escalade formation: {str(e)}")
@@ -401,25 +394,8 @@ class OptimizedRAGEngine:
             if not has_confirmation_keywords:
                 return False
             
-            # Vérifier le contexte de conversation
-            conversation_context = memory_store.get(session_id)
-            
-            # Chercher si le BLOC M a été présenté récemment (détection améliorée)
-            bloc_m_presented = False
-            for msg in conversation_context[-5:]:  # Derniers 5 messages
-                content = str(msg.get("content", "")).lower()
-                # Détection plus robuste du BLOC M
-                if any(phrase in content for phrase in [
-                    "excellent choix", 
-                    "équipe commerciale", 
-                    "recontacte", "recontactez",
-                    "financement optimal", "planning adapté", "accompagnement perso",
-                    "ok pour qu'on te recontacte", "meilleure stratégie pour toi"
-                ]):
-                    bloc_m_presented = True
-                    break
-            
-            return bloc_m_presented
+            # Utiliser la méthode statique pour vérifier si BLOC M a été présenté
+            return OptimizedMemoryManager.has_bloc_been_presented(session_id, "M")
             
         except Exception as e:
             logger.error(f"Erreur détection confirmation formation: {str(e)}")
@@ -504,9 +480,9 @@ class OptimizedRAGEngine:
             # Formation detection avec logique anti-répétition
             elif self._has_keywords(message_lower, self.keyword_sets.formation_keywords):
                 # Vérifier si les formations ont déjà été présentées
-                if self._has_formation_been_presented(session_id):
+                if OptimizedMemoryManager.has_bloc_been_presented(session_id, "K"):
                     # Si BLOC K déjà présenté, vérifier si BLOC M a été présenté
-                    if self._has_bloc_m_been_presented(session_id):
+                    if OptimizedMemoryManager.has_bloc_been_presented(session_id, "M"):
                         # Si BLOC M déjà présenté, escalader directement
                         decision = self._create_formation_confirmation_decision()
                     else:
@@ -739,7 +715,8 @@ RÈGLE ABSOLUE - PREMIÈRE PRÉSENTATION FORMATIONS :
 8. Proposer contact humain si besoin (Bloc G)
 9. JAMAIS de salutations répétées - contenu direct
 10. IMPORTANT : Ce BLOC K ne doit être présenté qu'une seule fois par conversation
-11. APRÈS le BLOC K, les demandes suivantes doivent aller vers BLOC M puis BLOC 6.2"""
+11. APRÈS le BLOC K, les demandes suivantes doivent aller vers BLOC M puis BLOC 6.2
+12. APRÈS avoir présenté le BLOC K, enregistrer automatiquement BLOC_K_PRESENTED dans la session"""
         )
     
     def _create_formation_escalade_decision(self) -> SimpleRAGDecision:
@@ -774,7 +751,8 @@ Pour le moment, nos formations ne sont plus financées par le CPF. Cependant, no
 4. Maintenir le ton professionnel et rassurant
 5. JAMAIS de salutations répétées - escalade directe
 6. IMPORTANT: Ce bloc doit être visible dans la BDD pour le suivi
-7. NE PAS répéter la liste des formations - aller directement au BLOC M"""
+7. NE PAS répéter la liste des formations - aller directement au BLOC M
+8. APRÈS avoir présenté le BLOC M, enregistrer automatiquement BLOC_M_PRESENTED dans la session"""
         )
     
     def _create_formation_confirmation_decision(self) -> SimpleRAGDecision:
@@ -1040,8 +1018,34 @@ class OptimizedMemoryManager:
         except Exception as e:
             logger.error(f"Erreur récupération contexte: {str(e)}")
             return []
+    
+    @staticmethod
+    async def add_bloc_presented(session_id: str, bloc_type: str):
+        """Enregistre qu'un bloc a été présenté dans la session"""
+        try:
+            bloc_message = f"BLOC_{bloc_type}_PRESENTED"
+            memory_store.add_message(session_id, bloc_message, "system")
+        except Exception as e:
+            logger.error(f"Erreur enregistrement bloc: {str(e)}")
+    
+    @staticmethod
+    def has_bloc_been_presented(session_id: str, bloc_type: str) -> bool:
+        """Vérifie si un bloc spécifique a été présenté"""
+        try:
+            conversation_context = memory_store.get(session_id)
+            bloc_marker = f"BLOC_{bloc_type}_PRESENTED"
+            
+            for msg in conversation_context:
+                if msg.get("content") == bloc_marker and msg.get("role") == "system":
+                    return True
+            
+            return False
+        except Exception as e:
+            logger.error(f"Erreur vérification bloc {bloc_type}: {str(e)}")
+            return False
 
-    def _has_formation_been_presented(self, session_id: str) -> bool:
+    @staticmethod
+    def _has_formation_been_presented(session_id: str) -> bool:
         """Vérifie si les formations ont déjà été présentées dans cette conversation"""
         try:
             conversation_context = memory_store.get(session_id)
@@ -1056,7 +1060,13 @@ class OptimizedMemoryManager:
                     "jak company",
                     "bureautique", "informatique", "langues", "web/3d",
                     "vente & marketing", "développement personnel",
-                    "écologie numérique", "bilan compétences"
+                    "écologie numérique", "bilan compétences",
+                    "🎓 +100 formations", "🎓 +100 formations disponibles",
+                    "📚 nos spécialités", "💻 bureautique", "🖥 informatique",
+                    "🌍 langues", "🎨 web/3d", "📈 vente & marketing",
+                    "🧠 développement personnel", "🌱 écologie numérique",
+                    "🎯 bilan compétences", "⚙ sur mesure", "📖 e-learning",
+                    "🏢 présentiel", "quel domaine t'intéresse"
                 ]):
                     return True
             
@@ -1066,7 +1076,8 @@ class OptimizedMemoryManager:
             logger.error(f"Erreur vérification formations présentées: {str(e)}")
             return False
     
-    def _has_bloc_m_been_presented(self, session_id: str) -> bool:
+    @staticmethod
+    def _has_bloc_m_been_presented(session_id: str) -> bool:
         """Vérifie si le BLOC M a déjà été présenté dans cette conversation"""
         try:
             conversation_context = memory_store.get(session_id)
@@ -1080,7 +1091,17 @@ class OptimizedMemoryManager:
                     "équipe commerciale", 
                     "recontacte", "recontactez",
                     "financement optimal", "planning adapté", "accompagnement perso",
-                    "ok pour qu'on te recontacte", "meilleure stratégie pour toi"
+                    "ok pour qu'on te recontacte", "meilleure stratégie pour toi",
+                    "🎯 excellent choix", "🎯 excellent choix !",
+                    "c'est noté", "📝 c'est noté", "pour le moment",
+                    "nos formations ne sont plus financées par le cpf",
+                    "nous proposons d'autres dispositifs de financement",
+                    "professionnels, entreprises, auto-entrepreneurs ou salariés",
+                    "je fais remonter à l'équipe commerciale",
+                    "la meilleure stratégie pour toi", "💼 la meilleure stratégie",
+                    "ils t'aideront avec", "✅ financement optimal",
+                    "✅ planning adapté", "✅ accompagnement perso",
+                    "ok pour qu'on te recontacte", "📞 ok pour qu'on te recontacte"
                 ]):
                     return True
             
@@ -1179,6 +1200,14 @@ async def optimize_rag_decision(request: Request):
         # === CONSTRUCTION RÉPONSE OPTIMISÉE ===
         try:
             processing_time = time.time() - start_time
+            
+            # Enregistrer automatiquement les blocs présentés selon le type de décision
+            if "FORMATION (BLOC K)" in decision.system_instructions:
+                await OptimizedMemoryManager.add_bloc_presented(session_id, "K")
+                logger.info(f"[{session_id}] BLOC K enregistré comme présenté")
+            elif "ESCALADE FORMATION (BLOC M)" in decision.system_instructions:
+                await OptimizedMemoryManager.add_bloc_presented(session_id, "M")
+                logger.info(f"[{session_id}] BLOC M enregistré comme présenté")
             
             response_data = {
                 "optimized_response": "Réponse optimisée générée avec performance monitoring",
@@ -1299,6 +1328,53 @@ async def get_performance_metrics():
     except Exception as e:
         logger.error(f"Erreur performance metrics: {str(e)}")
         return {"error": "Erreur récupération métriques"}
+
+@app.post("/test_formation_logic")
+async def test_formation_logic(request: Request):
+    """Endpoint pour tester la logique des formations"""
+    try:
+        body = await request.json()
+        test_messages = body.get("messages", [])
+        session_id = body.get("session_id", "test_session")
+        
+        results = []
+        
+        for i, message in enumerate(test_messages):
+            # Analyser chaque message
+            decision = await rag_engine.analyze_intent(message, session_id)
+            
+            # Vérifier l'état des blocs
+            bloc_k_presented = OptimizedMemoryManager.has_bloc_been_presented(session_id, "K")
+            bloc_m_presented = OptimizedMemoryManager.has_bloc_been_presented(session_id, "M")
+            
+            results.append({
+                "message": message,
+                "decision_type": decision.system_instructions.split("CONTEXTE DÉTECTÉ: ")[1].split("\n")[0] if "CONTEXTE DÉTECTÉ: " in decision.system_instructions else "GENERAL",
+                "bloc_k_presented": bloc_k_presented,
+                "bloc_m_presented": bloc_m_presented,
+                "should_escalate": decision.should_escalate
+            })
+            
+            # Ajouter le message à la mémoire pour simuler la conversation
+            await OptimizedMemoryManager.add_message(session_id, message, "user")
+            
+            # Enregistrer les blocs si nécessaire
+            if "FORMATION (BLOC K)" in decision.system_instructions:
+                await OptimizedMemoryManager.add_bloc_presented(session_id, "K")
+            elif "ESCALADE FORMATION (BLOC M)" in decision.system_instructions:
+                await OptimizedMemoryManager.add_bloc_presented(session_id, "M")
+        
+        return {
+            "test_results": results,
+            "final_state": {
+                "bloc_k_presented": OptimizedMemoryManager.has_bloc_been_presented(session_id, "K"),
+                "bloc_m_presented": OptimizedMemoryManager.has_bloc_been_presented(session_id, "M")
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Erreur test formation logic: {str(e)}")
+        return {"error": f"Erreur test: {str(e)}"}
 
 if __name__ == "__main__":
     import uvicorn
