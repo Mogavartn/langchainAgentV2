@@ -526,12 +526,41 @@ class OptimizedRAGEngine:
                 if not has_financing_info or not has_time_info:
                     decision = self._create_payment_filtering_decision(message)
                 # Sinon, appliquer la logique spécifique selon le type de financement et délai
-                elif time_financing_info['financing_type'] == 'direct' and time_financing_info['time_info'].get('days', 0) > 7:
-                    decision = self._create_payment_direct_delayed_decision()
-                elif time_financing_info['financing_type'] == 'opco' and time_financing_info['time_info'].get('months', 0) > 2:
-                    decision = self._create_escalade_admin_decision()
-                elif time_financing_info['financing_type'] == 'cpf' and time_financing_info['time_info'].get('days', 0) > 45:
-                    decision = self._create_escalade_admin_decision()
+                elif time_financing_info['financing_type'] == 'direct':
+                    # Convertir tous les délais en jours pour comparaison
+                    days = time_financing_info['time_info'].get('days', 0)
+                    weeks = time_financing_info['time_info'].get('weeks', 0)
+                    months = time_financing_info['time_info'].get('months', 0)
+                    total_days = days + (weeks * 7) + (months * 30)
+                    
+                    if total_days > 7:
+                        decision = self._create_payment_direct_delayed_decision()
+                    else:
+                        decision = self._create_payment_decision(message)
+                        
+                elif time_financing_info['financing_type'] == 'opco':
+                    # Convertir tous les délais en mois pour comparaison
+                    days = time_financing_info['time_info'].get('days', 0)
+                    weeks = time_financing_info['time_info'].get('weeks', 0)
+                    months = time_financing_info['time_info'].get('months', 0)
+                    total_months = months + (weeks * 4 / 12) + (days / 30)
+                    
+                    if total_months > 2:
+                        decision = self._create_opco_delayed_decision()
+                    else:
+                        decision = self._create_payment_decision(message)
+                        
+                elif time_financing_info['financing_type'] == 'cpf':
+                    # Convertir tous les délais en jours pour comparaison
+                    days = time_financing_info['time_info'].get('days', 0)
+                    weeks = time_financing_info['time_info'].get('weeks', 0)
+                    months = time_financing_info['time_info'].get('months', 0)
+                    total_days = days + (weeks * 7) + (months * 30)
+                    
+                    if total_days > 45:
+                        decision = self._create_escalade_admin_decision()
+                    else:
+                        decision = self._create_payment_decision(message)
                 else:
                     decision = self._create_payment_decision(message)
             
@@ -1039,6 +1068,38 @@ On te tiendra informé dès qu'on a du nouveau ✅
 4. Maintenir le ton professionnel et rassurant
 5. JAMAIS de salutations répétées - escalade directe
 6. IMPORTANT: Cette escalade doit être visible dans la BDD pour le suivi"""
+        )
+    
+    def _create_opco_delayed_decision(self) -> SimpleRAGDecision:
+        return SimpleRAGDecision(
+            search_query="opco délai dépassé 2 mois escalade admin",
+            search_strategy="semantic",
+            context_needed=["opco", "délai", "dépassé", "escalade"],
+            priority_level="high",
+            should_escalate=True,
+            system_instructions="""CONTEXTE DÉTECTÉ: OPCO DÉLAI DÉPASSÉ (BLOC F3)
+UTILISATION: Paiement OPCO avec délai > 2 mois
+
+Tu dois OBLIGATOIREMENT:
+1. Appliquer le BLOC F3 immédiatement
+2. Reproduire EXACTEMENT ce message:
+Merci pour ta réponse 🙏
+Pour un financement via un OPCO, le délai moyen est de 2 mois. Certains dossiers peuvent aller
+jusqu'à 6 mois ⏳
+Mais vu que cela fait plus de 2 mois, on préfère ne pas te faire attendre plus longtemps sans retour.
+👉 Je vais transmettre ta demande à notre équipe pour qu'on vérifie ton dossier dès maintenant 🧾
+🔁 ESCALADE AGENT ADMIN
+🕐 Notre équipe traite les demandes du lundi au vendredi, de 9h à 17h (hors pause déjeuner).
+On te tiendra informé dès qu'on a une réponse ✅
+
+3. Identifier le type de problème:
+   - Paiement OPCO en retard > 2 mois → BLOC F3
+   - Délai anormal pour OPCO → BLOC F3
+
+4. Maintenir le ton professionnel et rassurant
+5. JAMAIS de salutations répétées - escalade directe
+6. IMPORTANT: Ce bloc doit être visible dans la BDD pour le suivi
+7. DIFFÉRENCE AVEC BLOC 6.1: Ce bloc est spécifique aux délais OPCO dépassés"""
         )
     
     def _create_escalade_co_decision(self) -> SimpleRAGDecision:
