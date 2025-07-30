@@ -112,10 +112,29 @@ class KeywordSets:
         ])
         
         self.payment_keywords = frozenset([
+            # Demandes de paiement générales - RENFORCÉES
             "pas été payé", "pas payé", "paiement", "cpf", "opco", 
             "virement", "argent", "retard", "délai", "attends",
             "finance", "financement", "payé pour", "rien reçu",
             "je vais être payé quand", "délai paiement",
+            "pas reçu", "n'ai pas reçu", "n'ai pas eu", "pas eu",
+            "reçu", "payé", "payée", "payés", "payées",
+            "sous", "tune", "argent", "paiement", "virement",
+            "quand je serais payé", "quand je serai payé",
+            "quand je vais être payé", "quand je vais être payée",
+            "quand est-ce que je serai payé", "quand est-ce que je serai payée",
+            "quand est-ce que je vais être payé", "quand est-ce que je vais être payée",
+            "j'attends", "j'attends toujours", "j'attends encore",
+            "j'attends mon argent", "j'attends mon paiement", "j'attends mon virement",
+            "j'attends toujours mon argent", "j'attends toujours mon paiement",
+            "j'attends toujours mon virement", "j'attends encore mon argent",
+            "j'attends encore mon paiement", "j'attends encore mon virement",
+            "pas encore reçu", "pas encore payé", "pas encore payée",
+            "pas encore eu", "pas encore touché", "pas encore touchée",
+            "n'ai pas encore reçu", "n'ai pas encore payé", "n'ai pas encore payée",
+            "n'ai pas encore eu", "n'ai pas encore touché", "n'ai pas encore touchée",
+            "je n'ai pas encore reçu", "je n'ai pas encore payé", "je n'ai pas encore payée",
+            "je n'ai pas encore eu", "je n'ai pas encore touché", "je n'ai pas encore touchée",
             # Termes pour financement direct/personnel - RENFORCÉS
             "payé tout seul", "financé tout seul", "financé en direct",
             "paiement direct", "financement direct", "j'ai payé", 
@@ -332,6 +351,44 @@ class OptimizedRAGEngine:
         return any(term in message_lower for term in agent_patterns)
     
     @lru_cache(maxsize=50)
+    def _detect_payment_request(self, message_lower: str) -> bool:
+        """Détecte spécifiquement les demandes de paiement avec plus de précision"""
+        payment_request_patterns = frozenset([
+            # Demandes directes de paiement
+            "j'ai pas encore reçu mes sous", "j'ai pas encore reçu mes sous",
+            "j'ai pas encore été payé", "j'ai pas encore été payée",
+            "j'attends toujours ma tune", "j'attends toujours mon argent",
+            "j'attends toujours mon paiement", "j'attends toujours mon virement",
+            "c'est quand que je serais payé", "c'est quand que je serai payé",
+            "c'est quand que je vais être payé", "c'est quand que je vais être payée",
+            "quand est-ce que je serai payé", "quand est-ce que je serai payée",
+            "quand est-ce que je vais être payé", "quand est-ce que je vais être payée",
+            "quand je serais payé", "quand je serai payé",
+            "quand je vais être payé", "quand je vais être payée",
+            # Demandes avec "pas encore"
+            "pas encore reçu", "pas encore payé", "pas encore payée",
+            "pas encore eu", "pas encore touché", "pas encore touchée",
+            "n'ai pas encore reçu", "n'ai pas encore payé", "n'ai pas encore payée",
+            "n'ai pas encore eu", "n'ai pas encore touché", "n'ai pas encore touchée",
+            "je n'ai pas encore reçu", "je n'ai pas encore payé", "je n'ai pas encore payée",
+            "je n'ai pas encore eu", "je n'ai pas encore touché", "je n'ai pas encore touchée",
+            # Demandes avec "toujours"
+            "j'attends toujours", "j'attends encore",
+            "j'attends toujours mon argent", "j'attends toujours mon paiement",
+            "j'attends toujours mon virement", "j'attends encore mon argent",
+            "j'attends encore mon paiement", "j'attends encore mon virement",
+            # Demandes avec "pas"
+            "pas reçu", "pas payé", "pas payée", "pas eu", "pas touché", "pas touchée",
+            "n'ai pas reçu", "n'ai pas payé", "n'ai pas payée", "n'ai pas eu",
+            "n'ai pas touché", "n'ai pas touchée", "je n'ai pas reçu",
+            "je n'ai pas payé", "je n'ai pas payée", "je n'ai pas eu",
+            "je n'ai pas touché", "je n'ai pas touchée",
+            # Termes génériques de paiement
+            "sous", "tune", "argent", "paiement", "virement", "rémunération"
+        ])
+        return any(term in message_lower for term in payment_request_patterns)
+    
+    @lru_cache(maxsize=50)
     def _extract_time_info(self, message_lower: str) -> dict:
         """Extrait les informations de temps et de financement du message"""
         import re
@@ -443,13 +500,20 @@ class OptimizedRAGEngine:
             elif self._detect_agent_commercial_pattern(message_lower):
                 decision = self._create_escalade_co_decision()
             
-            # Payment detection (high priority)
-            elif self._has_keywords(message_lower, self.keyword_sets.payment_keywords):
+            # Payment detection (high priority) - RENFORCÉE
+            elif self._has_keywords(message_lower, self.keyword_sets.payment_keywords) or self._detect_payment_request(message_lower):
                 # Extraire les informations de temps et financement
                 time_financing_info = self._extract_time_info(message_lower)
                 
-                # Appliquer la logique spécifique selon le type de financement et délai
-                if time_financing_info['financing_type'] == 'direct' and time_financing_info['time_info'].get('days', 0) > 7:
+                # Vérifier si on a déjà les informations nécessaires
+                has_financing_info = time_financing_info['financing_type'] != 'unknown'
+                has_time_info = bool(time_financing_info['time_info'])
+                
+                # Si on n'a pas les informations nécessaires, appliquer le BLOC F
+                if not has_financing_info or not has_time_info:
+                    decision = self._create_payment_filtering_decision(message)
+                # Sinon, appliquer la logique spécifique selon le type de financement et délai
+                elif time_financing_info['financing_type'] == 'direct' and time_financing_info['time_info'].get('days', 0) > 7:
                     decision = self._create_payment_direct_delayed_decision()
                 elif time_financing_info['financing_type'] == 'opco' and time_financing_info['time_info'].get('months', 0) > 2:
                     decision = self._create_escalade_admin_decision()
@@ -611,16 +675,16 @@ RECONNAISSANCE FINANCEMENT AMÉLIORÉE:
 - AUTO-DÉTECTION: "j'ai payé toute seule", "c'est moi qui est financé", "financement moi même"
 - Ces termes = FINANCEMENT DIRECT confirmé automatiquement
 
-ÉTAPE 1 - QUESTIONS DE FILTRAGE INTELLIGENTES :
+ÉTAPE 1 - QUESTIONS DE FILTRAGE INTELLIGENTES (BLOC F) :
 - Si FINANCEMENT DIRECT détecté automatiquement → Demander SEULEMENT la date
 - Si FINANCEMENT OPCO détecté automatiquement → Demander SEULEMENT la date
-- Sinon → Demander: 1) "Comment la formation a été financée ?" (CPF, OPCO, direct)
-                   2) "Environ quand elle s'est terminée ?"
+- Sinon → Demander: 1) "Comment la formation a-t-elle été financée ?" (CPF, OPCO, direct)
+                   2) "Et environ quand elle s'est terminée ?"
 
 LOGIQUE ADAPTATIVE:
 - Financement direct détecté → Question directe: "Environ quand la formation s'est-elle terminée ?"
 - Financement OPCO détecté → Question directe: "Environ quand la formation s'est-elle terminée ?"
-- Financement non précisé → Questions complètes de filtrage
+- Financement non précisé → Questions complètes de filtrage (BLOC F)
 
 ÉTAPE 2 - LOGIQUE CONDITIONNELLE STRICTE :
 - Si DIRECT ET > 7 jours → BLOC L IMMÉDIAT (paiement direct délai dépassé) - CORRIGÉ
@@ -653,8 +717,44 @@ DÉTECTION AUTOMATIQUE ESCALADE:
 - Si délai > 2 mois (OPCO) → ESCALADE ADMIN (BLOC 6.1) - CORRIGÉ
 - Si délai > 45 jours (CPF) → ESCALADE ADMIN (BLOC 6.1)
 
+OBLIGATION ABSOLUE - BLOC F POUR FILTRAGE :
+Pour TOUTES les demandes de paiement non précisées, appliquer le BLOC F :
+"Pour que je puisse t'aider au mieux, est-ce que tu peux me préciser :
+● Comment la formation a-t-elle été financée ? (CPF, OPCO, paiement direct)
+● Et environ quand elle s'est terminée ?"
+
 Reproduire les blocs EXACTEMENT avec tous les emojis.
 JAMAIS de salutations répétées - questions directes."""
+        )
+    
+    def _create_payment_filtering_decision(self, message: str) -> SimpleRAGDecision:
+        """Décision spécifique pour le filtrage des paiements (BLOC F)"""
+        return SimpleRAGDecision(
+            search_query="paiement formation filtrage financement délai",
+            search_strategy="semantic",
+            context_needed=["paiement", "filtrage", "financement", "délai"],
+            priority_level="high",
+            should_escalate=False,
+            system_instructions="""CONTEXTE DÉTECTÉ: FILTRAGE PAIEMENT (BLOC F)
+OBLIGATION ABSOLUE - APPLIQUER LE BLOC F :
+
+Tu dois OBLIGATOIREMENT reproduire EXACTEMENT ce message de filtrage :
+
+"Pour que je puisse t'aider au mieux, est-ce que tu peux me préciser :
+
+● Comment la formation a-t-elle été financée ? (CPF, OPCO, paiement direct)
+● Et environ quand elle s'est terminée ?"
+
+RÈGLES STRICTES :
+1. Reproduire EXACTEMENT le texte ci-dessus avec les puces ●
+2. Ne pas modifier le texte
+3. Ne pas ajouter d'autres informations
+4. Ne pas combiner avec d'autres blocs
+5. Attendre la réponse de l'utilisateur
+6. Maintenir le ton professionnel et bienveillant
+7. JAMAIS de salutations répétées - filtrage direct
+
+OBJECTIF : Collecter les informations nécessaires pour appliquer la bonne logique de paiement selon le type de financement et le délai."""
         )
     
     def _create_ambassador_decision(self, message: str) -> SimpleRAGDecision:
@@ -1374,6 +1474,53 @@ async def test_formation_logic(request: Request):
         
     except Exception as e:
         logger.error(f"Erreur test formation logic: {str(e)}")
+        return {"error": f"Erreur test: {str(e)}"}
+
+@app.post("/test_payment_logic")
+async def test_payment_logic(request: Request):
+    """Endpoint pour tester la logique des paiements"""
+    try:
+        body = await request.json()
+        test_messages = body.get("messages", [])
+        session_id = body.get("session_id", "test_payment_session")
+        
+        results = []
+        
+        for i, message in enumerate(test_messages):
+            # Analyser chaque message
+            decision = await rag_engine.analyze_intent(message, session_id)
+            
+            # Extraire les informations de temps et financement
+            time_financing_info = rag_engine._extract_time_info(message.lower())
+            
+            results.append({
+                "message": message,
+                "decision_type": decision.system_instructions.split("CONTEXTE DÉTECTÉ: ")[1].split("\n")[0] if "CONTEXTE DÉTECTÉ: " in decision.system_instructions else "GENERAL",
+                "payment_detected": rag_engine._detect_payment_request(message.lower()),
+                "direct_financing": rag_engine._detect_direct_financing(message.lower()),
+                "opco_financing": rag_engine._detect_opco_financing(message.lower()),
+                "time_info": time_financing_info['time_info'],
+                "financing_type": time_financing_info['financing_type'],
+                "should_escalate": decision.should_escalate,
+                "system_instructions_preview": decision.system_instructions[:200] + "..." if len(decision.system_instructions) > 200 else decision.system_instructions
+            })
+            
+            # Ajouter le message à la mémoire pour simuler la conversation
+            await OptimizedMemoryManager.add_message(session_id, message, "user")
+        
+        return {
+            "test_results": results,
+            "payment_detection_summary": {
+                "total_messages": len(test_messages),
+                "payment_detected_count": sum(1 for r in results if r["payment_detected"]),
+                "direct_financing_count": sum(1 for r in results if r["direct_financing"]),
+                "opco_financing_count": sum(1 for r in results if r["opco_financing"]),
+                "filtering_bloc_count": sum(1 for r in results if "FILTRAGE PAIEMENT" in r["decision_type"])
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Erreur test payment logic: {str(e)}")
         return {"error": f"Erreur test: {str(e)}"}
 
 if __name__ == "__main__":
