@@ -147,6 +147,16 @@ class OptimizedMemoryStore:
             "total_contexts": len(self._conversation_context),
             "most_accessed": max(self._access_count.items(), key=lambda x: x[1]) if self._access_count else None
         }
+    
+    def set_last_bloc_context(self, session_id: str, bloc_id: str):
+        """Marque le dernier bloc présenté pour le contexte conversationnel"""
+        self.set_conversation_context(session_id, "last_bloc_presented", bloc_id)
+        # Nettoyer l'ancien contexte (garder seulement les 3 derniers blocs)
+        history = self.get_conversation_context(session_id, "bloc_history", [])
+        history.append(bloc_id)
+        if len(history) > 3:
+            history = history[-3:]
+        self.set_conversation_context(session_id, "bloc_history", history)
 
 # Instance globale du store de mémoire
 memory_store = OptimizedMemoryStore()
@@ -259,6 +269,7 @@ class SupabaseDrivenDetectionEngine:
                 "escalade co", "commercial", "vendeur", "conseiller"
             ])
         }
+
     
     @lru_cache(maxsize=100)
     def _has_keywords(self, message_lower: str, keyword_set: frozenset) -> bool:
@@ -307,6 +318,48 @@ class SupabaseDrivenDetectionEngine:
             total_days += time_info["années"] * 365
         return total_days
 
+    def _detect_formation_interest(self, message_lower: str, session_id: str) -> bool:
+        """Détecte si l'utilisateur exprime un intérêt pour une formation spécifique"""
+        interest_indicators = [
+            "intéressé par", "je choisis", "je veux", "m'intéresse", 
+            "ça m'intéresse", "je prends", "je sélectionne", "je souhaite"
+        ]
+    
+        formation_keywords = [
+            "comptabilité", "marketing", "langues", "web", "3d", "vente", 
+            "développement", "bureautique", "informatique", "écologie", "bilan"
+        ]
+    
+        has_interest = any(indicator in message_lower for indicator in interest_indicators)
+        has_formation = any(keyword in message_lower for keyword in formation_keywords)
+    
+        # Vérifier si l'utilisateur a récemment vu les formations
+        recent_context = memory_store.get_conversation_context(session_id, "last_bloc_presented")
+        formations_recently_shown = recent_context == "BLOC_K" or "formations" in str(recent_context)
+    
+        return has_interest and has_formation and formations_recently_shown
+
+    def _detect_follow_up_context(self, message_lower: str, session_id: str) -> Optional[IntentType]:
+        """Détecte les messages de suivi basés sur le contexte conversationnel"""
+    
+        # Récupérer le contexte récent
+        last_bloc = memory_store.get_conversation_context(session_id, "last_bloc_presented")
+        conversation_history = memory_store.get(session_id)
+    
+        # Si l'utilisateur a vu les formations et exprime un intérêt
+        if self._detect_formation_interest(message_lower, session_id):
+            return IntentType.BLOC_M
+    
+        # Si l'utilisateur vient de voir les ambassadeurs et pose des questions
+        if last_bloc in ["BLOC_D1", "BLOC_D2"] and any(word in message_lower for word in ["comment", "quand", "où", "combien"]):
+            return IntentType.BLOC_E  # Processus ambassadeur
+    
+        # Si l'utilisateur vient de voir un problème de paiement et donne plus d'infos
+        if last_bloc == "BLOC_A" and any(word in message_lower for word in ["depuis", "ça fait", "délai", "attendre"]):
+            return IntentType.BLOC_L  # Délai dépassé
+        
+        return None
+
 # ============================================================================
 # STRUCTURE DE DÉCISION RAG OPTIMISÉE
 # ============================================================================
@@ -335,8 +388,20 @@ class SupabaseRAGEngine:
         self.detection_engine = SupabaseDrivenDetectionEngine()
     
     async def analyze_intent(self, message: str, session_id: str = "default") -> SupabaseRAGDecision:
-        """Analyse l'intention et retourne la décision RAG basée sur Supabase"""
+        """Analyse l'intention avec gestion du contexte conversationnel améliorée"""
         message_lower = message.lower()
+    
+        # 1. NOUVEAU : Vérifier d'abord le contexte conversationnel
+        follow_up_bloc = self.detection_engine._detect_follow_up_context(message_lower, session_id)
+        if follow_up_bloc:
+            logger.info(f"Contexte conversationnel détecté: {follow_up_bloc.value} pour session {session_id}")
+            return self._create_contextual_decision(follow_up_bloc, message, session_id)
+    
+        # 2. Détection du bloc principal (logique existante)
+        detected_bloc = self._detect_primary_bloc(message_lower)
+    
+        # 3. Sauvegarder le contexte après détection
+        memory_store.set_conversation_context(session_id, "last_bloc_presented", detected_bloc.value)
         
         # Détection du bloc principal
         detected_bloc = self._detect_primary_bloc(message_lower)
@@ -487,6 +552,52 @@ class SupabaseRAGEngine:
             Ne pas mélanger avec d'autres blocs.""",
             session_id=session_id
         )
+    
+    def _create_contextual_decision(self, bloc_id: IntentType, message: str, session_id: str) -> SupabaseRAGDecision:
+        """Crée une décision basée sur le contexte conversationnel"""
+    
+        if bloc_id == IntentType.BLOC_M:
+            return SupabaseRAGDecision(
+                bloc_id=bloc_id,
+                search_query="formation choisie inscription confirmation après choix",
+                context_needed=["formation", "inscription", "confirmation"],
+                priority_level="HIGH",
+                should_escalade=False,
+                system_instructions="""RÈGLE ABSOLUE : Utiliser UNIQUEMENT le BLOC M.
+                L'utilisateur a choisi une formation après avoir vu le catalogue.
+                Reproduire MOT POUR MOT le processus d'inscription avec TOUS les emojis.
+                Pas de mélange avec d'autres blocs.""",
+                session_id=session_id
+            )
+    
+        elif bloc_id == IntentType.BLOC_E:
+            return SupabaseRAGDecision(
+                bloc_id=bloc_id,
+                search_query="processus ambassadeur étapes comment ça marche",
+                context_needed=["ambassadeur", "processus", "étapes"],
+                priority_level="HIGH",
+                should_escalade=False,
+                system_instructions="""RÈGLE ABSOLUE : Utiliser UNIQUEMENT le BLOC E.
+                L'utilisateur pose des questions sur le processus ambassadeur.
+                Reproduire MOT POUR MOT les étapes avec TOUS les emojis.""",
+                session_id=session_id
+            )
+    
+        elif bloc_id == IntentType.BLOC_L:
+            return SupabaseRAGDecision(
+                bloc_id=bloc_id,
+                search_query="délai dépassé retard paiement solution",
+                context_needed=["délai", "retard", "solution"],
+                priority_level="CRITICAL",
+                should_escalade=True,
+                system_instructions="""RÈGLE ABSOLUE : Utiliser UNIQUEMENT le BLOC L.
+                Délai de paiement dépassé, escalade nécessaire.
+                Reproduire MOT POUR MOT avec TOUS les emojis.""",
+                session_id=session_id
+            )
+    
+        # Retour par défaut
+        return self._create_default_decision(bloc_id, message, session_id)
 
 # Instance globale du moteur RAG
 rag_engine = SupabaseRAGEngine()
