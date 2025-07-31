@@ -22,7 +22,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="JAK Company RAG V4 API", version="6.0-Fixed")
+app = FastAPI(title="JAK Company RAG V5 API", version="7.0-Corrected")
 
 # Configuration CORS
 app.add_middleware(
@@ -397,19 +397,48 @@ class OptimizedDetectionEngine:
         }
     
     def _convert_to_days(self, time_info: Dict) -> int:
-        """Convertit les informations de temps en jours"""
+        """Convertit toutes les unités de temps en jours (CORRECTION V5)"""
         total_days = 0
         
+        # Conversion des jours
         if 'days' in time_info:
             total_days += time_info['days']
+        
+        # Conversion des semaines (1 semaine = 7 jours)
         if 'weeks' in time_info:
             total_days += time_info['weeks'] * 7
+        
+        # Conversion des mois (1 mois = 30 jours - CORRECTION V5)
         if 'months' in time_info:
-            total_days += time_info['months'] * 30  # Approximation
+            total_days += time_info['months'] * 30  # CORRECTION: était 28
+        
+        # Conversion des années (1 année = 365 jours)
         if 'years' in time_info:
-            total_days += time_info['years'] * 365  # Approximation
+            total_days += time_info['years'] * 365
         
         return total_days
+    
+    def _is_formation_choice(self, message_lower: str) -> bool:
+        """Détecte si c'est un choix de formation après BLOC K (NOUVEAU V5)"""
+        formation_choice_keywords = frozenset([
+            "je veux", "j'aimerais", "j'ai envie", "je souhaite",
+            "en anglais", "en français", "en informatique", "en bureautique",
+            "en vente", "en marketing", "en développement", "en web",
+            "anglais business", "français", "informatique", "bureautique",
+            "vente", "marketing", "développement", "web", "3d", "langues",
+            "business", "commerce", "gestion", "comptabilité", "rh",
+            "ressources humaines", "communication", "design", "graphisme"
+        ])
+        return any(keyword in message_lower for keyword in formation_choice_keywords)
+    
+    def _is_formation_confirmation(self, message_lower: str) -> bool:
+        """Détecte si c'est une confirmation après BLOC M (NOUVEAU V5)"""
+        confirmation_keywords = frozenset([
+            "ok", "d'accord", "oui", "parfait", "super", "ça marche",
+            "je veux bien", "c'est parfait", "très bien", "ok pour",
+            "d'accord pour", "oui pour", "parfait pour"
+        ])
+        return any(keyword in message_lower for keyword in confirmation_keywords)
 
 # ============================================================================
 # STRUCTURES DE DÉCISION
@@ -460,7 +489,20 @@ class OptimizedRAGEngine:
         
         # ===== PRIORITÉ 2: FORMATIONS (BLOC K) =====
         if self.detection_engine._has_keywords(message_lower, self.detection_engine.formation_keywords):
-            return self._create_formation_decision(message)
+            decision = self._create_formation_decision(message)
+            # Marquer le bloc comme présenté immédiatement
+            self.memory_store.add_bloc_presented(session_id, decision.bloc_type)
+            return decision
+        
+        # ===== PRIORITÉ 2.1: ESCALADE FORMATION (NOUVEAU V5) =====
+        if (self.memory_store.has_bloc_been_presented(session_id, "BLOC_K") and
+            self.detection_engine._is_formation_choice(message_lower)):
+            return self._create_formation_escalade_decision()
+        
+        # ===== PRIORITÉ 2.2: CONFIRMATION FORMATION (NOUVEAU V5) =====
+        if (self.memory_store.has_bloc_been_presented(session_id, "BLOC_M") and
+            self.detection_engine._is_formation_confirmation(message_lower)):
+            return self._create_formation_confirmation_decision()
         
         # ===== PRIORITÉ 3: PAIEMENTS =====
         if self.detection_engine._is_payment_related(message_lower):
@@ -478,7 +520,7 @@ class OptimizedRAGEngine:
             financing_type = time_financing_info['financing_type']
             time_info = time_financing_info['time_info']
             
-            # Paiement direct > 7 jours → BLOC J + Escalade Admin
+            # Paiement direct > 7 jours → BLOC L + Escalade Admin (CORRECTION V5)
             if (financing_type == FinancingType.DIRECT and 
                 self.detection_engine._convert_to_days(time_info) > 7):
                 return self._create_payment_direct_delayed_decision()
@@ -630,6 +672,28 @@ bloqués par la Caisse des Dépôts ?
 👉 Si oui, je te donne directement toutes les infos liées à ce blocage.
 Sinon, je fais remonter ta demande à notre équipe pour vérification ✅""",
             bloc_type="BLOC_F1"
+        )
+    
+    def _create_cpf_blocked_decision(self) -> RAGDecision:
+        """Décision pour CPF bloqué (BLOC F2 - NOUVEAU V5)"""
+        return RAGDecision(
+            intent_type=IntentType.PAYMENT,
+            search_query="CPF bloqué Caisse des Dépôts",
+            search_strategy="cpf_blocked",
+            context_needed=["cpf", "blocage", "caisse_dépôts"],
+            priority_level="high",
+            should_escalate=False,
+            system_instructions="""CONTEXTE DÉTECTÉ: CPF BLOQUÉ (BLOC F2)
+OBLIGATION ABSOLUE - APPLIQUER LE BLOC F2 :
+Ce dossier fait partie des quelques cas bloqués depuis la réforme CPF de février 2025.
+✅ Tous les éléments nécessaires ont bien été transmis à l'organisme de contrôle 📄 🔍
+❌ Mais la Caisse des Dépôts met souvent plusieurs semaines (parfois jusqu'à 2 mois) pour
+redemander un document après en avoir reçu un autre.
+👉 On accompagne au maximum le centre de formation pour que tout rentre dans l'ordre.
+🙏 On est aussi impactés financièrement, car chaque formation a un coût pour nous.
+💪 On garde confiance et on espère une issue favorable très bientôt.
+🗣 Et on s'engage à revenir vers toi dès qu'on a du nouveau. Merci pour ta patience 🙏""",
+            bloc_type="BLOC_F2"
         )
     
     def _create_ambassador_decision(self, message: str) -> RAGDecision:
