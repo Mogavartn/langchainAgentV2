@@ -114,13 +114,13 @@ class OptimizedMemoryStore:
         messages.append({"role": role, "content": message})
         self.set(session_id, messages)
     
-    def add_bloc_presented(self, session_id: str, bloc_type: str):
+    def add_bloc_presented(self, session_id: str, bloc_id: str):
         """Marque un bloc comme présenté"""
-        self._bloc_history[session_id].add(bloc_type)
+        self._bloc_history[session_id].add(bloc_id)
     
-    def has_bloc_been_presented(self, session_id: str, bloc_type: str) -> bool:
+    def has_bloc_been_presented(self, session_id: str, bloc_id: str) -> bool:
         """Vérifie si un bloc a déjà été présenté"""
-        return bloc_type in self._bloc_history[session_id]
+        return bloc_id in self._bloc_history[session_id]
     
     def set_conversation_context(self, session_id: str, context_key: str, value: Any):
         """Définit un contexte de conversation"""
@@ -314,7 +314,7 @@ class SupabaseDrivenDetectionEngine:
 @dataclass
 class SupabaseRAGDecision:
     """Structure de décision RAG basée sur Supabase"""
-    bloc_type: IntentType
+    bloc_id: IntentType
     search_query: str
     context_needed: List[str]
     priority_level: str
@@ -384,9 +384,9 @@ class SupabaseRAGEngine:
             IntentType.BLOC_GENERAL                                      # Général
         ]
         
-        for bloc_type in priority_order:
-            if self.detection_engine._has_keywords(message_lower, self.detection_engine.bloc_keywords[bloc_type]):
-                return bloc_type
+        for bloc_id in priority_order:
+            if self.detection_engine._has_keywords(message_lower, self.detection_engine.bloc_keywords[bloc_id]):
+                return bloc_id
         
         return IntentType.FALLBACK
     
@@ -404,7 +404,7 @@ class SupabaseRAGEngine:
     def _create_payment_filtering_decision(self, message: str, session_id: str) -> SupabaseRAGDecision:
         """Crée une décision pour le filtrage de paiement"""
         return SupabaseRAGDecision(
-            bloc_type=IntentType.BLOC_F1,
+            bloc_id=IntentType.BLOC_F1,
             search_query="CPF question dossier bloqué filtrage",
             context_needed=["paiement", "cpf", "filtrage"],
             priority_level="CRITICAL",
@@ -418,10 +418,10 @@ class SupabaseRAGEngine:
     
     def _create_ambassador_decision(self, message: str, session_id: str) -> SupabaseRAGDecision:
         """Crée une décision pour les ambassadeurs"""
-        bloc_type = IntentType.BLOC_D1 if "devenir" in message.lower() else IntentType.BLOC_D2
+        bloc_id = IntentType.BLOC_D1 if "devenir" in message.lower() else IntentType.BLOC_D2
         return SupabaseRAGDecision(
-            bloc_type=bloc_type,
-            search_query=f"ambassadeur {bloc_type.value.lower()}",
+            bloc_id=bloc_id,
+            search_query=f"ambassadeur {bloc_id.value.lower()}",
             context_needed=["ambassadeur", "affiliation"],
             priority_level="HIGH",
             should_escalade=False,
@@ -434,7 +434,7 @@ class SupabaseRAGEngine:
     def _create_formation_decision(self, message: str, session_id: str) -> SupabaseRAGDecision:
         """Crée une décision pour les formations"""
         return SupabaseRAGDecision(
-            bloc_type=IntentType.BLOC_K,
+            bloc_id=IntentType.BLOC_K,
             search_query="formations disponibles catalogue programmes",
             context_needed=["formation", "programme", "catalogue"],
             priority_level="MEDIUM",
@@ -448,7 +448,7 @@ class SupabaseRAGEngine:
     def _create_aggressive_decision(self, message: str, session_id: str) -> SupabaseRAGDecision:
         """Crée une décision pour l'agressivité"""
         return SupabaseRAGDecision(
-            bloc_type=IntentType.BLOC_AGRO,
+            bloc_id=IntentType.BLOC_AGRO,
             search_query="agressivité impolitesse recadrage",
             context_needed=["agressivité", "recadrage"],
             priority_level="CRITICAL",
@@ -461,10 +461,10 @@ class SupabaseRAGEngine:
     
     def _create_escalade_decision(self, message: str, session_id: str) -> SupabaseRAGDecision:
         """Crée une décision pour l'escalade"""
-        bloc_type = IntentType.BLOC_61 if "admin" in message.lower() else IntentType.BLOC_62
+        bloc_id = IntentType.BLOC_61 if "admin" in message.lower() else IntentType.BLOC_62
         return SupabaseRAGDecision(
-            bloc_type=bloc_type,
-            search_query=f"escalade {bloc_type.value.lower()}",
+            bloc_id=bloc_id,
+            search_query=f"escalade {bloc_id.value.lower()}",
             context_needed=["escalade", "contact"],
             priority_level="CRITICAL",
             should_escalade=True,
@@ -474,15 +474,15 @@ class SupabaseRAGEngine:
             session_id=session_id
         )
     
-    def _create_default_decision(self, bloc_type: IntentType, message: str, session_id: str) -> SupabaseRAGDecision:
+    def _create_default_decision(self, bloc_id: IntentType, message: str, session_id: str) -> SupabaseRAGDecision:
         """Crée une décision par défaut basée sur le bloc détecté"""
         return SupabaseRAGDecision(
-            bloc_type=bloc_type,
-            search_query=f"{bloc_type.value.lower()} {message[:50]}",
-            context_needed=[bloc_type.value.lower()],
+            bloc_id=bloc_id,
+            search_query=f"{bloc_id.value.lower()} {message[:50]}",
+            context_needed=[bloc_id.value.lower()],
             priority_level="MEDIUM",
             should_escalade=False,
-            system_instructions=f"""RÈGLE ABSOLUE : Utiliser UNIQUEMENT le {bloc_type.value}.
+            system_instructions=f"""RÈGLE ABSOLUE : Utiliser UNIQUEMENT le {bloc_id.value}.
             Reproduire MOT POUR MOT avec TOUS les emojis.
             Ne pas mélanger avec d'autres blocs.""",
             session_id=session_id
@@ -565,14 +565,14 @@ async def optimize_rag_decision(request: Request):
         
         # Marquer le bloc comme présenté si nécessaire
         if not rag_decision.should_escalade:
-            memory_store.add_bloc_presented(session_id, rag_decision.bloc_type.value)
+            memory_store.add_bloc_presented(session_id, rag_decision.bloc_id.value)
         
         # Construction de la réponse optimisée
         response = {
             "status": "success",
             "session_id": session_id,
             "processing_time": round(time.time() - start_time, 3),
-            "bloc_type": rag_decision.bloc_type.value,
+            "bloc_id": rag_decision.bloc_id.value,
             "search_query": rag_decision.search_query,
             "context_needed": rag_decision.context_needed,
             "priority_level": rag_decision.priority_level,
@@ -584,7 +584,7 @@ async def optimize_rag_decision(request: Request):
             "timestamp": time.time()
         }
         
-        logger.info(f"RAG decision for session {session_id}: {rag_decision.bloc_type.value}")
+        logger.info(f"RAG decision for session {session_id}: {rag_decision.bloc_id.value}")
         return response
         
     except Exception as e:
