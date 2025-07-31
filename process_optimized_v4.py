@@ -489,6 +489,7 @@ class OptimizedRAGEngine:
                 decision = self._create_cpf_delayed_decision()
                 # Marquer le bloc comme présenté immédiatement
                 self.memory_store.add_bloc_presented(session_id, decision.bloc_type)
+                print(f"DEBUG: CPF > 45 jours - BLOC_F1 marqué pour session {session_id}")
                 return decision
             
             # Autres cas → BLOC F
