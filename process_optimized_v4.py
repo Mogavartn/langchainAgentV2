@@ -94,7 +94,7 @@ class OptimizedMemoryStore:
     def __init__(self, max_size: int = 1000, ttl_seconds: int = 3600):
         self._store = TTLCache(maxsize=max_size, ttl=ttl_seconds)
         self._access_count = defaultdict(int)
-        self._bloc_history = defaultdict(list)
+        self._bloc_history = defaultdict(set)
         self._conversation_context = defaultdict(dict)
     
     def get(self, key: str) -> List[Dict]:
@@ -111,25 +111,16 @@ class OptimizedMemoryStore:
     def add_message(self, session_id: str, message: str, role: str = "user"):
         """Ajoute un message à la session"""
         messages = self.get(session_id)
-        messages.append({"role": role, "content": message, "timestamp": time.time()})
+        messages.append({"role": role, "content": message})
         self.set(session_id, messages)
     
     def add_bloc_presented(self, session_id: str, bloc_id: str):
         """Marque un bloc comme présenté"""
-        if bloc_id not in self._bloc_history[session_id]:
-            self._bloc_history[session_id].append(bloc_id)
-            # Garder seulement les 5 derniers blocs
-            if len(self._bloc_history[session_id]) > 5:
-                self._bloc_history[session_id] = self._bloc_history[session_id][-5:]
+        self._bloc_history[session_id].add(bloc_id)
     
     def has_bloc_been_presented(self, session_id: str, bloc_id: str) -> bool:
         """Vérifie si un bloc a déjà été présenté"""
         return bloc_id in self._bloc_history[session_id]
-    
-    def get_last_bloc_presented(self, session_id: str) -> Optional[str]:
-        """Récupère le dernier bloc présenté"""
-        history = self._bloc_history[session_id]
-        return history[-1] if history else None
     
     def set_conversation_context(self, session_id: str, context_key: str, value: Any):
         """Définit un contexte de conversation"""
@@ -138,11 +129,6 @@ class OptimizedMemoryStore:
     def get_conversation_context(self, session_id: str, context_key: str, default: Any = None) -> Any:
         """Récupère un contexte de conversation"""
         return self._conversation_context[session_id].get(context_key, default)
-    
-    def get_recent_messages(self, session_id: str, count: int = 3) -> List[str]:
-        """Récupère les messages récents pour analyse contextuelle"""
-        messages = self.get(session_id)
-        return [msg["content"] for msg in messages[-count:] if msg["role"] == "user"]
     
     def clear(self, session_id: str):
         """Nettoie une session"""
@@ -161,6 +147,16 @@ class OptimizedMemoryStore:
             "total_contexts": len(self._conversation_context),
             "most_accessed": max(self._access_count.items(), key=lambda x: x[1]) if self._access_count else None
         }
+    
+    def set_last_bloc_context(self, session_id: str, bloc_id: str):
+        """Marque le dernier bloc présenté pour le contexte conversationnel"""
+        self.set_conversation_context(session_id, "last_bloc_presented", bloc_id)
+        # Nettoyer l'ancien contexte (garder seulement les 3 derniers blocs)
+        history = self.get_conversation_context(session_id, "bloc_history", [])
+        history.append(bloc_id)
+        if len(history) > 3:
+            history = history[-3:]
+        self.set_conversation_context(session_id, "bloc_history", history)
 
 # Instance globale du store de mémoire
 memory_store = OptimizedMemoryStore()
@@ -273,89 +269,7 @@ class SupabaseDrivenDetectionEngine:
                 "escalade co", "commercial", "vendeur", "conseiller"
             ])
         }
-    
-    def _detect_acknowledgment(self, message_lower: str) -> bool:
-        """Détecte les messages d'acquiescement ou de validation"""
-        acknowledgment_words = [
-            "ok", "d'accord", "très bien", "parfait", "excellent", "super",
-            "merci", "bien reçu", "compris", "entendu", "ça marche", 
-            "c'est bon", "noté", "oui", "yes", "👍", "✅", "bien",
-            "bonne idée", "ça me va", "génial", "top", "cool"
-        ]
-        
-        # Message court (moins de 25 caractères) avec mot d'acquiescement
-        is_short = len(message_lower.strip()) < 25
-        has_acknowledgment = any(word in message_lower for word in acknowledgment_words)
-        
-        return is_short and has_acknowledgment
-    
-    def _detect_formation_interest(self, message_lower: str, session_id: str) -> bool:
-        """Détecte si l'utilisateur exprime un intérêt pour une formation spécifique"""
-        interest_indicators = [
-            "intéressé par", "je choisis", "je veux", "m'intéresse", 
-            "ça m'intéresse", "je prends", "je sélectionne", "je souhaite",
-            "j'aimerais", "je préfère", "mon choix", "retient mon attention"
-        ]
-        
-        formation_keywords = [
-            "comptabilité", "marketing", "langues", "web", "3d", "vente", 
-            "développement", "bureautique", "informatique", "écologie", "bilan",
-            "personnel", "compétences", "sur mesure"
-        ]
-        
-        has_interest = any(indicator in message_lower for indicator in interest_indicators)
-        has_formation = any(keyword in message_lower for keyword in formation_keywords)
-        
-        # Vérifier si l'utilisateur a récemment vu les formations
-        last_bloc = memory_store.get_last_bloc_presented(session_id)
-        formations_recently_shown = last_bloc == "BLOC K" or last_bloc == "BLOC H"
-        
-        return has_interest and has_formation and formations_recently_shown
-    
-    def _detect_next_step_request(self, message_lower: str) -> bool:
-        """Détecte les demandes d'étape suivante"""
-        next_step_indicators = [
-            "et après", "suite", "étape suivante", "ensuite", "maintenant",
-            "comment faire", "que faire", "prochaine étape", "la suite",
-            "comment procéder", "à suivre", "next", "what's next",
-            "et maintenant", "quelle est la suite"
-        ]
-        
-        return any(indicator in message_lower for indicator in next_step_indicators)
-    
-    def _get_follow_up_bloc(self, session_id: str, message_lower: str) -> Optional[IntentType]:
-        """Détermine le bloc de suivi approprié selon le contexte"""
-        
-        # Récupérer le dernier bloc présenté
-        last_bloc = memory_store.get_last_bloc_presented(session_id)
-        
-        if not last_bloc:
-            return IntentType.BLOC_GENERAL
-        
-        # Gestion des suites logiques
-        if last_bloc == "BLOC M":  # Après inscription formation
-            if self._detect_next_step_request(message_lower):
-                return IntentType.BLOC_G  # Contact humain pour finaliser
-            else:
-                return IntentType.BLOC_GENERAL  # Réponse générale positive
-                
-        elif last_bloc == "BLOC K":  # Après catalogue formations
-            return IntentType.BLOC_GENERAL  # Encouragement à choisir
-            
-        elif last_bloc in ["BLOC D1", "BLOC D2"]:  # Après ambassadeur
-            if self._detect_next_step_request(message_lower):
-                return IntentType.BLOC_E  # Processus ambassadeur
-            else:
-                return IntentType.BLOC_GENERAL
-                
-        elif last_bloc == "BLOC A":  # Après problème paiement
-            return IntentType.BLOC_G  # Redirection vers conseiller
-            
-        elif last_bloc == "BLOC E":  # Après processus ambassadeur
-            return IntentType.BLOC_GENERAL  # Encouragement
-            
-        # Par défaut, réponse générale positive
-        return IntentType.BLOC_GENERAL
+
     
     @lru_cache(maxsize=100)
     def _has_keywords(self, message_lower: str, keyword_set: frozenset) -> bool:
@@ -404,6 +318,48 @@ class SupabaseDrivenDetectionEngine:
             total_days += time_info["années"] * 365
         return total_days
 
+    def _detect_formation_interest(self, message_lower: str, session_id: str) -> bool:
+        """Détecte si l'utilisateur exprime un intérêt pour une formation spécifique"""
+        interest_indicators = [
+            "intéressé par", "je choisis", "je veux", "m'intéresse", 
+            "ça m'intéresse", "je prends", "je sélectionne", "je souhaite"
+        ]
+    
+        formation_keywords = [
+            "comptabilité", "marketing", "langues", "web", "3d", "vente", 
+            "développement", "bureautique", "informatique", "écologie", "bilan"
+        ]
+    
+        has_interest = any(indicator in message_lower for indicator in interest_indicators)
+        has_formation = any(keyword in message_lower for keyword in formation_keywords)
+    
+        # Vérifier si l'utilisateur a récemment vu les formations
+        recent_context = memory_store.get_conversation_context(session_id, "last_bloc_presented")
+        formations_recently_shown = recent_context == "BLOC_K" or "formations" in str(recent_context)
+    
+        return has_interest and has_formation and formations_recently_shown
+
+    def _detect_follow_up_context(self, message_lower: str, session_id: str) -> Optional[IntentType]:
+        """Détecte les messages de suivi basés sur le contexte conversationnel"""
+    
+        # Récupérer le contexte récent
+        last_bloc = memory_store.get_conversation_context(session_id, "last_bloc_presented")
+        conversation_history = memory_store.get(session_id)
+    
+        # Si l'utilisateur a vu les formations et exprime un intérêt
+        if self._detect_formation_interest(message_lower, session_id):
+            return IntentType.BLOC_M
+    
+        # Si l'utilisateur vient de voir les ambassadeurs et pose des questions
+        if last_bloc in ["BLOC_D1", "BLOC_D2"] and any(word in message_lower for word in ["comment", "quand", "où", "combien"]):
+            return IntentType.BLOC_E  # Processus ambassadeur
+    
+        # Si l'utilisateur vient de voir un problème de paiement et donne plus d'infos
+        if last_bloc == "BLOC_A" and any(word in message_lower for word in ["depuis", "ça fait", "délai", "attendre"]):
+            return IntentType.BLOC_L  # Délai dépassé
+        
+        return None
+
 # ============================================================================
 # STRUCTURE DE DÉCISION RAG OPTIMISÉE
 # ============================================================================
@@ -434,106 +390,44 @@ class SupabaseRAGEngine:
     async def analyze_intent(self, message: str, session_id: str = "default") -> SupabaseRAGDecision:
         """Analyse l'intention avec gestion du contexte conversationnel améliorée"""
         message_lower = message.lower()
+    
+        # 1. NOUVEAU : Vérifier d'abord le contexte conversationnel
+        follow_up_bloc = self.detection_engine._detect_follow_up_context(message_lower, session_id)
+        if follow_up_bloc:
+            logger.info(f"Contexte conversationnel détecté: {follow_up_bloc.value} pour session {session_id}")
+            return self._create_contextual_decision(follow_up_bloc, message, session_id)
+    
+        # 2. Détection du bloc principal (logique existante)
+        detected_bloc = self._detect_primary_bloc(message_lower)
+    
+        # 3. Sauvegarder le contexte après détection
+        memory_store.set_conversation_context(session_id, "last_bloc_presented", detected_bloc.value)
         
-        # Ajouter le message à l'historique
-        memory_store.add_message(session_id, message, "user")
+        # Détection du bloc principal
+        detected_bloc = self._detect_primary_bloc(message_lower)
         
-        # 1. NOUVEAU : Gestion des acquiescements
-        if self.detection_engine._detect_acknowledgment(message_lower):
-            logger.info(f"Acquiescement détecté pour session {session_id}")
-            follow_up_bloc = self.detection_engine._get_follow_up_bloc(session_id, message_lower)
-            if follow_up_bloc:
-                return self._create_acknowledgment_decision(follow_up_bloc, message, session_id)
-        
-        # 2. NOUVEAU : Détection d'intérêt pour formation
-        if self.detection_engine._detect_formation_interest(message_lower, session_id):
-            logger.info(f"Intérêt formation détecté pour session {session_id}")
-            return self._create_formation_interest_decision(message, session_id)
-        
-        # 3. Logique spéciale pour les paiements CPF avec délai
+        # Logique spéciale pour les paiements CPF avec délai
         if self._should_apply_payment_filtering(message_lower, session_id):
             return self._create_payment_filtering_decision(message, session_id)
         
-        # 4. Détection du bloc principal
-        detected_bloc = self._detect_primary_bloc(message_lower)
-        
-        # 5. Logique spéciale pour les ambassadeurs
+        # Logique spéciale pour les ambassadeurs
         if detected_bloc in [IntentType.BLOC_D1, IntentType.BLOC_D2]:
-            decision = self._create_ambassador_decision(message, session_id)
+            return self._create_ambassador_decision(message, session_id)
         
-        # 6. Logique spéciale pour les formations
-        elif detected_bloc in [IntentType.BLOC_H, IntentType.BLOC_K]:
-            decision = self._create_formation_decision(message, session_id)
+        # Logique spéciale pour les formations
+        if detected_bloc in [IntentType.BLOC_H, IntentType.BLOC_K]:
+            return self._create_formation_decision(message, session_id)
         
-        # 7. Logique spéciale pour l'agressivité
-        elif detected_bloc == IntentType.BLOC_AGRO:
-            decision = self._create_aggressive_decision(message, session_id)
+        # Logique spéciale pour l'agressivité
+        if detected_bloc == IntentType.BLOC_AGRO:
+            return self._create_aggressive_decision(message, session_id)
         
-        # 8. Logique spéciale pour l'escalade
-        elif detected_bloc in [IntentType.BLOC_61, IntentType.BLOC_62]:
-            decision = self._create_escalade_decision(message, session_id)
+        # Logique spéciale pour l'escalade
+        if detected_bloc in [IntentType.BLOC_61, IntentType.BLOC_62]:
+            return self._create_escalade_decision(message, session_id)
         
-        # 9. Décision par défaut basée sur le bloc détecté
-        else:
-            decision = self._create_default_decision(detected_bloc, message, session_id)
-        
-        # Sauvegarder le contexte après détection
-        memory_store.add_bloc_presented(session_id, decision.bloc_id.value)
-        
-        return decision
-    
-    def _create_acknowledgment_decision(self, bloc_id: IntentType, message: str, session_id: str) -> SupabaseRAGDecision:
-        """Crée une décision pour les acquiescements"""
-        
-        if bloc_id == IntentType.BLOC_GENERAL:
-            return SupabaseRAGDecision(
-                bloc_id=bloc_id,
-                search_query="reponse positive encouragement jak company",
-                context_needed=["encouragement", "positif", "suite"],
-                priority_level="LOW",
-                should_escalade=False,
-                system_instructions="""RÈGLE SPÉCIALE : L'utilisateur acquiesce positivement.
-                Pas besoin de chercher un bloc spécifique - donne une réponse encourageante JAK Company.
-                Utilise un ton chaleureux avec emojis naturels.
-                Propose d'aider pour autre chose ou de continuer selon le contexte.
-                Exemples : "Parfait ! 😊 Y a-t-il autre chose que je puisse faire pour vous ?"
-                "Excellent choix ! 🎉 N'hésitez pas si vous avez d'autres questions !"
-                "Super ! 👍 Je reste à votre disposition pour tout autre besoin !"
-                Garde le ton JAK Company authentique et chaleureux.""",
-                session_id=session_id
-            )
-        
-        elif bloc_id == IntentType.BLOC_G:
-            return SupabaseRAGDecision(
-                bloc_id=bloc_id,
-                search_query="contact humain conseiller telephone",
-                context_needed=["contact", "humain", "conseiller"],
-                priority_level="HIGH",
-                should_escalade=True,
-                system_instructions="""RÈGLE ABSOLUE : Utiliser UNIQUEMENT le BLOC G.
-                L'utilisateur souhaite la suite avec un conseiller humain.
-                Reproduire MOT POUR MOT avec TOUS les emojis.
-                Donner les coordonnées de contact.""",
-                session_id=session_id
-            )
-        
-        # Retour par défaut
-        return self._create_default_decision(bloc_id, message, session_id)
-    
-    def _create_formation_interest_decision(self, message: str, session_id: str) -> SupabaseRAGDecision:
-        """Crée une décision pour l'intérêt formation détecté"""
-        return SupabaseRAGDecision(
-            bloc_id=IntentType.BLOC_M,
-            search_query="formation choisie inscription confirmation après choix",
-            context_needed=["formation", "inscription", "confirmation"],
-            priority_level="HIGH",
-            should_escalade=False,
-            system_instructions="""RÈGLE ABSOLUE : Utiliser UNIQUEMENT le BLOC M.
-            L'utilisateur a exprimé un intérêt pour une formation spécifique après avoir vu le catalogue.
-            Reproduire MOT POUR MOT le processus d'inscription avec TOUS les emojis.
-            Ne pas mélanger avec d'autres blocs.""",
-            session_id=session_id
-        )
+        # Décision par défaut basée sur le bloc détecté
+        return self._create_default_decision(detected_bloc, message, session_id)
     
     def _detect_primary_bloc(self, message_lower: str) -> IntentType:
         """Détecte le bloc principal selon la logique Supabase"""
@@ -658,6 +552,52 @@ class SupabaseRAGEngine:
             Ne pas mélanger avec d'autres blocs.""",
             session_id=session_id
         )
+    
+    def _create_contextual_decision(self, bloc_id: IntentType, message: str, session_id: str) -> SupabaseRAGDecision:
+        """Crée une décision basée sur le contexte conversationnel"""
+    
+        if bloc_id == IntentType.BLOC_M:
+            return SupabaseRAGDecision(
+                bloc_id=bloc_id,
+                search_query="formation choisie inscription confirmation après choix",
+                context_needed=["formation", "inscription", "confirmation"],
+                priority_level="HIGH",
+                should_escalade=False,
+                system_instructions="""RÈGLE ABSOLUE : Utiliser UNIQUEMENT le BLOC M.
+                L'utilisateur a choisi une formation après avoir vu le catalogue.
+                Reproduire MOT POUR MOT le processus d'inscription avec TOUS les emojis.
+                Pas de mélange avec d'autres blocs.""",
+                session_id=session_id
+            )
+    
+        elif bloc_id == IntentType.BLOC_E:
+            return SupabaseRAGDecision(
+                bloc_id=bloc_id,
+                search_query="processus ambassadeur étapes comment ça marche",
+                context_needed=["ambassadeur", "processus", "étapes"],
+                priority_level="HIGH",
+                should_escalade=False,
+                system_instructions="""RÈGLE ABSOLUE : Utiliser UNIQUEMENT le BLOC E.
+                L'utilisateur pose des questions sur le processus ambassadeur.
+                Reproduire MOT POUR MOT les étapes avec TOUS les emojis.""",
+                session_id=session_id
+            )
+    
+        elif bloc_id == IntentType.BLOC_L:
+            return SupabaseRAGDecision(
+                bloc_id=bloc_id,
+                search_query="délai dépassé retard paiement solution",
+                context_needed=["délai", "retard", "solution"],
+                priority_level="CRITICAL",
+                should_escalade=True,
+                system_instructions="""RÈGLE ABSOLUE : Utiliser UNIQUEMENT le BLOC L.
+                Délai de paiement dépassé, escalade nécessaire.
+                Reproduire MOT POUR MOT avec TOUS les emojis.""",
+                session_id=session_id
+            )
+    
+        # Retour par défaut
+        return self._create_default_decision(bloc_id, message, session_id)
 
 # Instance globale du moteur RAG
 rag_engine = SupabaseRAGEngine()
@@ -670,24 +610,20 @@ rag_engine = SupabaseRAGEngine()
 async def root():
     """Endpoint racine avec informations sur l'API"""
     return {
-        "message": "JAK Company RAG V4 API - Supabase Driven with Context Awareness",
-        "version": "6.1",
+        "message": "JAK Company RAG V4 API - Supabase Driven",
+        "version": "6.0",
         "status": "active",
         "features": [
             "Supabase-driven bloc detection",
             "Optimized memory management",
             "Context-aware decision making",
-            "Real-time intent analysis",
-            "Acknowledgment detection",
-            "Formation interest detection",
-            "Conversational flow management"
+            "Real-time intent analysis"
         ],
         "endpoints": {
             "POST /optimize_rag": "Analyze message and return RAG decision",
             "GET /health": "Health check",
             "POST /clear_memory/{session_id}": "Clear session memory",
-            "GET /memory_status": "Memory store statistics",
-            "GET /session_context/{session_id}": "Get session context"
+            "GET /memory_status": "Memory store statistics"
         }
     }
 
@@ -701,9 +637,7 @@ async def health_check():
             "memory_store": "operational",
             "detection_engine": "ready",
             "rag_engine": "ready",
-            "openai_key": "configured" if openai_key else "missing",
-            "context_awareness": "enabled",
-            "acknowledgment_detection": "enabled"
+            "openai_key": "configured" if openai_key else "missing"
         }
         
         # Statistiques de mémoire
@@ -714,7 +648,7 @@ async def health_check():
             "timestamp": time.time(),
             "checks": checks,
             "memory_stats": memory_stats,
-            "version": "6.1-Context-Aware"
+            "version": "6.0-Supabase-Driven"
         }
     except Exception as e:
         logger.error(f"Health check failed: {e}")
@@ -722,7 +656,7 @@ async def health_check():
 
 @app.post("/optimize_rag")
 async def optimize_rag_decision(request: Request):
-    """Endpoint principal pour l'optimisation RAG basée sur Supabase avec contexte"""
+    """Endpoint principal pour l'optimisation RAG basée sur Supabase"""
     start_time = time.time()
     
     try:
@@ -734,8 +668,15 @@ async def optimize_rag_decision(request: Request):
         if not message:
             return await _create_error_response("INVALID_INPUT", "Message is required", session_id, time.time() - start_time)
         
-        # Analyse de l'intention avec le moteur Supabase amélioré
+        # Ajout du message à la mémoire
+        memory_store.add_message(session_id, message, "user")
+        
+        # Analyse de l'intention avec le moteur Supabase
         rag_decision = await rag_engine.analyze_intent(message, session_id)
+        
+        # Marquer le bloc comme présenté si nécessaire
+        if not rag_decision.should_escalade:
+            memory_store.add_bloc_presented(session_id, rag_decision.bloc_id.value)
         
         # Construction de la réponse optimisée
         response = {
@@ -751,16 +692,10 @@ async def optimize_rag_decision(request: Request):
             "financing_type": rag_decision.financing_type.value if rag_decision.financing_type else None,
             "time_info": rag_decision.time_info,
             "message": message,
-            "timestamp": time.time(),
-            "context_applied": {
-                "acknowledgment_detected": rag_engine.detection_engine._detect_acknowledgment(message.lower()),
-                "formation_interest_detected": rag_engine.detection_engine._detect_formation_interest(message.lower(), session_id),
-                "last_bloc_presented": memory_store.get_last_bloc_presented(session_id),
-                "session_message_count": len(memory_store.get(session_id))
-            }
+            "timestamp": time.time()
         }
         
-        logger.info(f"RAG decision for session {session_id}: {rag_decision.bloc_id.value} (context aware)")
+        logger.info(f"RAG decision for session {session_id}: {rag_decision.bloc_id.value}")
         return response
         
     except Exception as e:
@@ -807,75 +742,6 @@ async def memory_status():
     except Exception as e:
         logger.error(f"Error getting memory status: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get memory status: {str(e)}")
-
-@app.get("/session_context/{session_id}")
-async def get_session_context(session_id: str):
-    """Retourne le contexte d'une session spécifique"""
-    try:
-        context = {
-            "session_id": session_id,
-            "messages": memory_store.get(session_id),
-            "last_bloc_presented": memory_store.get_last_bloc_presented(session_id),
-            "bloc_history": memory_store._bloc_history.get(session_id, []),
-            "conversation_context": memory_store._conversation_context.get(session_id, {}),
-            "timestamp": time.time()
-        }
-        
-        return {
-            "status": "success",
-            "context": context
-        }
-    except Exception as e:
-        logger.error(f"Error getting session context: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get session context: {str(e)}")
-
-@app.post("/debug_intent")
-async def debug_intent(request: Request):
-    """Endpoint de debug pour analyser la détection d'intention"""
-    try:
-        body = await request.json()
-        message = body.get("message", "").strip()
-        session_id = body.get("session_id", "debug_session")
-        
-        if not message:
-            raise HTTPException(status_code=400, detail="Message is required")
-        
-        message_lower = message.lower()
-        engine = rag_engine.detection_engine
-        
-        # Tests de détection
-        debug_info = {
-            "message": message,
-            "message_lower": message_lower,
-            "session_id": session_id,
-            "detections": {
-                "acknowledgment": engine._detect_acknowledgment(message_lower),
-                "formation_interest": engine._detect_formation_interest(message_lower, session_id),
-                "next_step_request": engine._detect_next_step_request(message_lower),
-                "financing_type": engine._detect_financing_type(message_lower).value,
-                "primary_bloc": rag_engine._detect_primary_bloc(message_lower).value
-            },
-            "context": {
-                "last_bloc_presented": memory_store.get_last_bloc_presented(session_id),
-                "bloc_history": memory_store._bloc_history.get(session_id, []),
-                "recent_messages": memory_store.get_recent_messages(session_id)
-            },
-            "bloc_matches": {}
-        }
-        
-        # Tester tous les blocs
-        for bloc_type, keywords in engine.bloc_keywords.items():
-            debug_info["bloc_matches"][bloc_type.value] = engine._has_keywords(message_lower, keywords)
-        
-        return {
-            "status": "success",
-            "debug_info": debug_info,
-            "timestamp": time.time()
-        }
-        
-    except Exception as e:
-        logger.error(f"Error in debug_intent: {e}")
-        raise HTTPException(status_code=500, detail=f"Debug failed: {str(e)}")
 
 # ============================================================================
 # POINT D'ENTRÉE PRINCIPAL
